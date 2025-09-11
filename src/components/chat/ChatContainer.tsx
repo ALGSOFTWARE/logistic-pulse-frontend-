@@ -7,6 +7,7 @@ import { DocumentDetailModal } from "./DocumentDetailModal";
 import { SmartMenu, type MenuAction } from "./SmartMenu";
 import { MessageInterpreter, type InterpretationResult } from "./MessageInterpreter";
 import { useToast } from "@/hooks/use-toast";
+import { apiService, type ChatMessage as ApiChatMessage } from "@/services/api";
 
 export type DocumentType = "CTE" | "AWL" | "BL" | "MANIFESTO" | "NF";
 
@@ -27,19 +28,47 @@ export const ChatContainer = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isSmartMenuOpen, setIsSmartMenuOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<any>(null);
+  const [sessionId, setSessionId] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(false);
   const [userProfile, setUserProfile] = useState({
-    name: "Eduardo Silva",
+    name: "Eduardo Silva", 
     company: "Mercosul Line",
     role: "Operador Logístico"
   });
   
   const { toast } = useToast();
   const interpreter = new MessageInterpreter();
-  
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      type: "system",
+
+  // Inicializar sessão de chat
+  useEffect(() => {
+    initChatSession();
+  }, []);
+
+  const initChatSession = async () => {
+    try {
+      const session = await apiService.createChatSession("Chat Inteligente");
+      setSessionId(session.session_id);
+      
+      // Carregar mensagem de boas-vindas
+      loadWelcomeMessage();
+    } catch (error) {
+      console.error("Erro ao inicializar sessão:", error);
+      toast({
+        title: "Erro de Conexão",
+        description: "Não foi possível conectar com o sistema de chat. Usando modo offline.",
+        variant: "destructive"
+      });
+      
+      // Usar modo offline/mock
+      setSessionId("offline-session");
+      loadWelcomeMessage();
+    }
+  };
+
+  const loadWelcomeMessage = () => {
+    const welcomeMessage: Message = {
+      id: "welcome",
+      type: "system", 
       content: `Olá ${userProfile.name}, vejo que você é ${userProfile.role} da ${userProfile.company}. Bem-vindo ao Smart Tracking Chat! 
 
 Posso te ajudar a:
@@ -49,40 +78,13 @@ Posso te ajudar a:
 • Esclarecer dúvidas sobre suas operações
 
 Como posso ajudá-lo hoje?`,
-      timestamp: new Date(Date.now() - 60000),
-    },
-    {
-      id: "2",
-      type: "user",
-      content: "Gostaria de consultar o CT-e da carga ABC123",
-      timestamp: new Date(Date.now() - 45000),
-    },
-    {
-      id: "3",
-      type: "agent",
-      content: "Encontrei o CT-e da carga ABC123. O documento está anexado e disponível para download. Status atual: Em trânsito para São Paulo.",
-      timestamp: new Date(Date.now() - 30000),
-      attachments: [
-        {
-          type: "CTE",
-          name: "CTE-ABC123-2024.pdf",
-          url: "#"
-        }
-      ]
-    },
-    {
-      id: "4",
-      type: "user",
-      content: "Preciso consultar alguns documentos específicos",
-      timestamp: new Date(Date.now() - 15000),
-    },
-    {
-      id: "5",
-      type: "agent",
-      content: "Claro! Você pode usar nossa consulta rápida de documentos. Clique no botão abaixo para acessar todos os tipos de documentos disponíveis.",
-      timestamp: new Date(Date.now() - 5000),
-    }
-  ]);
+      timestamp: new Date(),
+    };
+    
+    setMessages([welcomeMessage]);
+  };
+  
+  const [messages, setMessages] = useState<Message[]>([]);
 
   // Mock data para demonstração
   const mockDocuments = [
@@ -133,84 +135,74 @@ Como posso ajudá-lo hoje?`,
     );
   };
 
-  const handleSendMessage = (content: string) => {
-    const newMessage: Message = {
+  const handleSendMessage = async (content: string) => {
+    if (!content.trim() || isLoading || !sessionId) {
+      return;
+    }
+
+    // Mensagem do usuário
+    const userMessage: Message = {
       id: Date.now().toString(),
-      type: "user",
+      type: "user", 
       content,
       timestamp: new Date(),
     };
     
-    setMessages(prev => [...prev, newMessage]);
-    
-    // Interpretar mensagem
-    const interpretation = interpreter.interpret(content);
-    
-    setTimeout(() => {
-      let agentResponse: Message;
-      
-      if (interpretation.isDocumentRequest && interpretation.documentRequest?.isValidRequest) {
-        const doc = findDocument(interpretation.documentRequest.identifier || "");
-        
-        if (doc) {
-          agentResponse = {
-            id: (Date.now() + 1).toString(),
-            type: "agent",
-            content: `Encontrei o documento ${doc.number}! 
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
 
-📋 **Detalhes:**
-• Status: ${doc.status}
-• Cliente: ${doc.client}
-• Rota: ${doc.rota.origem} → ${doc.rota.destino}
-• Status da entrega: ${doc.rota.status}
+    try {
+      // Enviar para a API real
+      const response = await apiService.sendChatMessage({
+        message: content,
+        session_id: sessionId,
+        agent_name: "LogisticsAgent" // Padrão
+      });
 
-Você pode visualizar os detalhes completos, fazer download ou compartilhar o documento usando os botões abaixo.`,
-            timestamp: new Date(),
-            attachments: [{
-              type: doc.type,
-              name: doc.arquivo.nome,
-              url: doc.arquivo.url
-            }]
-          };
-          
-          // Mostrar modal de detalhes após um breve delay
-          setTimeout(() => {
-            setSelectedDocument(doc);
-            setIsDetailModalOpen(true);
-          }, 1500);
-        } else {
-          agentResponse = {
-            id: (Date.now() + 1).toString(),
-            type: "agent",
-            content: `Não consegui localizar o documento específico que você mencionou. 
+      // Mensagem de resposta do agente
+      const agentMessage: Message = {
+        id: response.message_id,
+        type: "agent",
+        content: response.content,
+        timestamp: new Date(response.timestamp),
+        attachments: response.attachments || []
+      };
 
-Algumas sugestões:
-• Verifique se o número está correto
-• Tente usar apenas os números (sem letras)
-• Use o botão "Consultar Documentos" para ver todos os documentos disponíveis
+      setMessages(prev => [...prev, agentMessage]);
 
-Posso te ajudar de outra forma?`,
-            timestamp: new Date(),
-          };
-        }
-      } else if (interpretation.needsMoreInfo) {
-        agentResponse = {
-          id: (Date.now() + 1).toString(),
-          type: "agent",
-          content: interpretation.suggestedResponse || "Preciso de mais informações para te ajudar.",
-          timestamp: new Date(),
-        };
-      } else {
-        agentResponse = {
-          id: (Date.now() + 1).toString(),
-          type: "agent",
-          content: interpretation.suggestedResponse || "Como posso te ajudar com seus documentos e cargas?",
-          timestamp: new Date(),
-        };
+      // Se houver anexos, pode mostrar modal ou notificação
+      if (response.attachments && response.attachments.length > 0) {
+        toast({
+          title: "Documentos encontrados",
+          description: `${response.attachments.length} documento(s) anexado(s) à resposta.`
+        });
       }
+
+    } catch (error) {
+      console.error("Erro ao enviar mensagem:", error);
       
-      setMessages(prev => [...prev, agentResponse]);
-    }, 1000);
+      // Fallback para modo offline usando o interpretador original
+      const interpretation = interpreter.interpret(content);
+      
+      const fallbackResponse: Message = {
+        id: (Date.now() + 1).toString(),
+        type: "agent",
+        content: sessionId === "offline-session" 
+          ? interpretation.suggestedResponse || "Desculpe, estou em modo offline. Tente novamente quando a conexão for restabelecida."
+          : "Desculpe, houve um problema ao processar sua mensagem. Tente novamente em alguns instantes.",
+        timestamp: new Date(),
+      };
+      
+      setMessages(prev => [...prev, fallbackResponse]);
+      
+      toast({
+        title: "Erro de Conexão",
+        description: "Não foi possível enviar a mensagem. Verifique sua conexão.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSmartMenuAction = (action: MenuAction, inputs?: Record<string, string>) => {
@@ -240,6 +232,7 @@ Posso te ajudar de outra forma?`,
       <ChatInput 
         onSendMessage={handleSendMessage} 
         onOpenSmartMenu={() => setIsSmartMenuOpen(true)}
+        isLoading={isLoading}
       />
       
       <DocumentModal 

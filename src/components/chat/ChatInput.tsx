@@ -7,14 +7,15 @@ import { QuickActions } from "./QuickActions";
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
   onOpenSmartMenu: () => void;
+  isLoading?: boolean;
 }
 
-export const ChatInput = ({ onSendMessage, onOpenSmartMenu }: ChatInputProps) => {
+export const ChatInput = ({ onSendMessage, onOpenSmartMenu, isLoading = false }: ChatInputProps) => {
   const [message, setMessage] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (message.trim()) {
+    if (message.trim() && !isLoading) {
       onSendMessage(message.trim());
       setMessage("");
     }
@@ -42,17 +43,18 @@ export const ChatInput = ({ onSendMessage, onOpenSmartMenu }: ChatInputProps) =>
           <Input
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="Ex: 'Me envie o CT-e da carga ABC123' ou 'Status do embarque XPTO'"
+            placeholder={isLoading ? "Processando mensagem..." : "Ex: 'Me envie o CT-e da carga ABC123' ou 'Status do embarque XPTO'"}
             className="border-muted focus:border-brand-primary"
+            disabled={isLoading}
           />
         </div>
         
         <Button 
           type="submit" 
-          disabled={!message.trim()}
+          disabled={!message.trim() || isLoading}
           className="bg-gradient-primary hover:opacity-90 text-brand-dark"
         >
-          <Send className="w-4 h-4" />
+          <Send className={`w-4 h-4 ${isLoading ? 'animate-pulse' : ''}`} />
         </Button>
       </form>
       

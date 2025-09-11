@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/components/ui/use-toast";
+import { useDocuments } from "@/hooks/useDocuments";
+import { useUsers } from "@/hooks/useUsers";
 import { 
   FileText, 
   Upload, 
@@ -33,81 +35,7 @@ import {
   AlertCircle
 } from "lucide-react";
 
-// Mock data
-const documentosData = [
-  {
-    id: "DOC-001",
-    numero: "CTE-2024-001234",
-    tipo: "CT-e",
-    cliente: "Empresa ABC Ltda",
-    jornada: "JOR-001",
-    origem: "São Paulo/SP",
-    destino: "Rio de Janeiro/RJ",
-    dataUpload: "2024-01-15T08:00:00",
-    dataEmissao: "2024-01-15T06:00:00",
-    status: "Validado",
-    tamanho: "2.5 MB",
-    versao: 1,
-    uploadPor: "Sistema IA",
-    origem_upload: "chat",
-    visualizacoes: 12,
-    ultimaVisualizacao: "2024-01-15T10:30:00"
-  },
-  {
-    id: "DOC-002",
-    numero: "NF-2024-567890",
-    tipo: "NF-e",
-    cliente: "Empresa DEF S.A",
-    jornada: "JOR-002",
-    origem: "Belo Horizonte/MG",
-    destino: "Salvador/BA",
-    dataUpload: "2024-01-14T14:30:00",
-    dataEmissao: "2024-01-14T12:00:00",
-    status: "Pendente Validação",
-    tamanho: "1.8 MB",
-    versao: 2,
-    uploadPor: "João Silva",
-    origem_upload: "manual",
-    visualizacoes: 5,
-    ultimaVisualizacao: "2024-01-14T16:45:00"
-  },
-  {
-    id: "DOC-003",
-    numero: "AWL-2024-789012",
-    tipo: "AWB",
-    cliente: "Importadora GHI",
-    jornada: "JOR-003",
-    origem: "Miami/USA",
-    destino: "São Paulo/SP",
-    dataUpload: "2024-01-13T09:15:00",
-    dataEmissao: "2024-01-13T07:00:00",
-    status: "Validado",
-    tamanho: "3.2 MB",
-    versao: 1,
-    uploadPor: "API Integration",
-    origem_upload: "api",
-    visualizacoes: 8,
-    ultimaVisualizacao: "2024-01-13T11:20:00"
-  },
-  {
-    id: "DOC-004",
-    numero: "BL-2024-345678",
-    tipo: "BL",
-    cliente: "Empresa JKL Ltd",
-    jornada: "JOR-004",
-    origem: "Shanghai/China",
-    destino: "Santos/SP",
-    dataUpload: "2024-01-12T16:00:00",
-    dataEmissao: "2024-01-12T14:00:00",
-    status: "Rejeitado",
-    tamanho: "4.1 MB",
-    versao: 3,
-    uploadPor: "Maria Costa",
-    origem_upload: "email",
-    visualizacoes: 15,
-    ultimaVisualizacao: "2024-01-12T18:30:00"
-  }
-];
+// Dados carregados dinamicamente do MongoDB via API
 
 const getDocumentIcon = (tipo: string) => {
   switch (tipo) {
@@ -152,10 +80,22 @@ const getOrigemIcon = (origem: string) => {
   }
 };
 
-const DocumentUploadModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+const DocumentUploadModal = ({ isOpen, onClose, onUploadSuccess }: { 
+  isOpen: boolean; 
+  onClose: () => void;
+  onUploadSuccess: () => void;
+}) => {
   const { toast } = useToast();
   const [uploadMethod, setUploadMethod] = useState("manual");
   const [dragActive, setDragActive] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [documentCategory, setDocumentCategory] = useState("other");
+  const { uploadDocument } = useDocuments();
+  const { users } = useUsers();
+  
+  // Para demonstração, usar primeiro usuário disponível
+  const currentUser = users[0];
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -172,10 +112,55 @@ const DocumentUploadModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: ()
     e.stopPropagation();
     setDragActive(false);
     
-    toast({
-      title: "Upload Simulado",
-      description: "Arquivo enviado com sucesso! IA identificou: CT-e",
-    });
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setSelectedFile(e.dataTransfer.files[0]);
+    }
+  };
+  
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
+    }
+  };
+  
+  const handleUpload = async () => {
+    if (!selectedFile || !currentUser) {
+      toast({
+        title: "Erro",
+        description: "Selecione um arquivo e certifique-se de que há um usuário logado",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    setUploading(true);
+    try {
+      const success = await uploadDocument(selectedFile, currentUser.id, documentCategory);
+      
+      if (success) {
+        toast({
+          title: "Upload realizado com sucesso!",
+          description: `Arquivo ${selectedFile.name} foi enviado e está sendo processado.`,
+        });
+        setSelectedFile(null);
+        onUploadSuccess();
+        onClose();
+      } else {
+        toast({
+          title: "Erro no upload",
+          description: "Não foi possível enviar o arquivo. Tente novamente.",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Erro no upload",
+        description: "Erro inesperado durante o upload",
+        variant: "destructive"
+      });
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
@@ -222,7 +207,48 @@ const DocumentUploadModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: ()
               <p className="text-sm text-muted-foreground mt-2">
                 Formatos suportados: PDF, PNG, JPG, XML (máx. 10MB)
               </p>
-              <Button className="mt-4">Selecionar Arquivos</Button>
+              <input 
+                type="file" 
+                accept=".pdf,.png,.jpg,.jpeg,.xml"
+                onChange={handleFileSelect}
+                className="hidden" 
+                id="file-upload"
+              />
+              <label htmlFor="file-upload">
+                <Button className="mt-4" type="button">Selecionar Arquivos</Button>
+              </label>
+              
+              {selectedFile && (
+                <div className="mt-4 p-3 bg-muted rounded-lg">
+                  <p className="text-sm font-medium">{selectedFile.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {(selectedFile.size / 1024 / 1024).toFixed(1)} MB
+                  </p>
+                  
+                  <div className="mt-3 space-y-2">
+                    <Select value={documentCategory} onValueChange={setDocumentCategory}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Categoria do documento" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cte">CT-e</SelectItem>
+                        <SelectItem value="bl">BL</SelectItem>
+                        <SelectItem value="invoice">NF-e</SelectItem>
+                        <SelectItem value="photo">Foto</SelectItem>
+                        <SelectItem value="other">Outro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    
+                    <Button 
+                      onClick={handleUpload} 
+                      disabled={uploading}
+                      className="w-full"
+                    >
+                      {uploading ? "Enviando..." : "Fazer Upload"}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
               <strong>IA Automática:</strong> Nosso sistema identificará automaticamente o tipo de documento e o associará à jornada correta.
@@ -272,6 +298,30 @@ const DocumentUploadModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: ()
 };
 
 const DocumentViewer = ({ documento, isOpen, onClose }: { documento: any; isOpen: boolean; onClose: () => void }) => {
+  const { getDocumentDetails } = useDocuments();
+  const [documentDetails, setDocumentDetails] = useState(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  
+  const loadDocumentDetails = async () => {
+    if (!documento?.file_id) return;
+    
+    setLoadingDetails(true);
+    try {
+      const details = await getDocumentDetails(documento.file_id);
+      setDocumentDetails(details);
+    } catch (error) {
+      console.error('Erro ao carregar detalhes do documento:', error);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+  
+  // Carregar detalhes quando o modal abrir
+  React.useEffect(() => {
+    if (isOpen && documento) {
+      loadDocumentDetails();
+    }
+  }, [isOpen, documento]);
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl h-[80vh]">
@@ -279,13 +329,58 @@ const DocumentViewer = ({ documento, isOpen, onClose }: { documento: any; isOpen
           <DialogTitle>{documento?.numero}</DialogTitle>
         </DialogHeader>
         <div className="flex-1 bg-muted rounded-lg flex items-center justify-center">
-          <div className="text-center">
-            <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-            <p className="text-muted-foreground">Visualização do documento</p>
-            <p className="text-sm text-muted-foreground mt-2">
-              Integração com visualizador PDF seria implementada aqui
-            </p>
-          </div>
+          {loadingDetails ? (
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Carregando detalhes...</p>
+            </div>
+          ) : documentDetails ? (
+            <div className="w-full p-4">
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium">Tipo:</span> {documentDetails.file_type}
+                  </div>
+                  <div>
+                    <span className="font-medium">Tamanho:</span> {(documentDetails.size_bytes / 1024 / 1024).toFixed(1)} MB
+                  </div>
+                  <div>
+                    <span className="font-medium">Status:</span> {documentDetails.processing_status}
+                  </div>
+                  <div>
+                    <span className="font-medium">Acessos:</span> {documentDetails.access_count}
+                  </div>
+                </div>
+                
+                {documentDetails.text_content_available && (
+                  <div>
+                    <p className="font-medium mb-2">Texto extraído disponível via OCR</p>
+                    <Badge variant="outline">OCR Processado</Badge>
+                  </div>
+                )}
+                
+                {documentDetails.has_embedding && (
+                  <Badge variant="outline">Busca Semântica Habilitada</Badge>
+                )}
+                
+                <div className="text-center pt-4">
+                  <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-muted-foreground">Preview do documento</p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Visualizador completo será implementado
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center">
+              <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+              <p className="text-muted-foreground">Visualização do documento</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                Não foi possível carregar os detalhes
+              </p>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -301,22 +396,74 @@ export default function Documentos() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
   const { toast } = useToast();
-
-  const documentosFiltrados = documentosData.filter(doc => {
-    const matchFiltro = doc.numero.toLowerCase().includes(filtro.toLowerCase()) ||
-                       doc.cliente.toLowerCase().includes(filtro.toLowerCase());
-    const matchTipo = tipoFiltro === "todos" || doc.tipo === tipoFiltro;
-    const matchStatus = statusFiltro === "todos" || doc.status === statusFiltro;
-    const matchOrigem = origemFiltro === "todos" || doc.origem_upload === origemFiltro;
-    
-    return matchFiltro && matchTipo && matchStatus && matchOrigem;
+  
+  // Hooks para dados reais
+  const { users } = useUsers();
+  const currentUser = users[0]; // Para demonstração, usar primeiro usuário
+  const { 
+    documents, 
+    loading, 
+    error, 
+    refetch, 
+    downloadDocument, 
+    deleteDocument,
+    totalDocuments,
+    hasMore,
+    loadMore
+  } = useDocuments({
+    user_id: currentUser?.id
   });
 
-  const handleDownload = (doc: any) => {
-    toast({
-      title: "Download Iniciado",
-      description: `Baixando ${doc.numero}...`,
+  // Aplicar filtros localmente aos documentos carregados
+  const documentosFiltrados = useMemo(() => {
+    return documents.filter(doc => {
+      const matchFiltro = doc.numero.toLowerCase().includes(filtro.toLowerCase()) ||
+                         doc.cliente.toLowerCase().includes(filtro.toLowerCase());
+      const matchTipo = tipoFiltro === "todos" || doc.tipo === tipoFiltro;
+      const matchStatus = statusFiltro === "todos" || doc.status === statusFiltro;
+      const matchOrigem = origemFiltro === "todos" || doc.origem_upload === origemFiltro;
+      
+      return matchFiltro && matchTipo && matchStatus && matchOrigem;
     });
+  }, [documents, filtro, tipoFiltro, statusFiltro, origemFiltro]);
+
+  const handleDownload = async (doc: any) => {
+    try {
+      const downloadUrl = await downloadDocument(doc.file_id || doc.id);
+      if (downloadUrl) {
+        window.open(downloadUrl, '_blank');
+        toast({
+          title: "Download Iniciado",
+          description: `Baixando ${doc.numero}...`,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Erro no Download",
+        description: "Não foi possível fazer o download do arquivo.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  const handleDelete = async (doc: any) => {
+    if (!currentUser) return;
+    
+    if (confirm(`Tem certeza que deseja deletar o documento ${doc.numero}?`)) {
+      const success = await deleteDocument(doc.file_id || doc.id, currentUser.id);
+      if (success) {
+        toast({
+          title: "Documento removido",
+          description: `${doc.numero} foi removido com sucesso.`,
+        });
+      } else {
+        toast({
+          title: "Erro ao remover",
+          description: "Não foi possível remover o documento.",
+          variant: "destructive"
+        });
+      }
+    }
   };
 
   const handleView = (doc: any) => {
@@ -324,12 +471,12 @@ export default function Documentos() {
     setViewerOpen(true);
   };
 
-  const estatisticas = {
-    total: documentosData.length,
-    validados: documentosData.filter(d => d.status === "Validado").length,
-    pendentes: documentosData.filter(d => d.status === "Pendente Validação").length,
-    rejeitados: documentosData.filter(d => d.status === "Rejeitado").length,
-  };
+  const estatisticas = useMemo(() => ({
+    total: totalDocuments,
+    validados: documents.filter(d => d.status === "Validado").length,
+    pendentes: documents.filter(d => d.status === "Pendente Validação" || d.status === "Processando").length,
+    rejeitados: documents.filter(d => d.status === "Rejeitado").length,
+  }), [documents, totalDocuments]);
 
   return (
     <AppLayout>
@@ -529,8 +676,12 @@ export default function Documentos() {
                           <Download className="w-4 h-4 mr-1" />
                           Download
                         </Button>
-                        <Button size="sm" variant="outline">
-                          <MoreVertical className="w-4 h-4" />
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleDelete(doc)}
+                        >
+                          Deletar
                         </Button>
                       </div>
                     </div>
@@ -541,8 +692,33 @@ export default function Documentos() {
               {documentosFiltrados.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
                   <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>Nenhum documento encontrado</p>
-                  <p className="text-sm">Tente ajustar os filtros de busca</p>
+                  {loading ? (
+                    <div>
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                      <p>Carregando documentos...</p>
+                    </div>
+                  ) : error ? (
+                    <div>
+                      <p>Erro ao carregar documentos</p>
+                      <p className="text-sm">{error}</p>
+                      <Button variant="outline" size="sm" className="mt-2" onClick={() => refetch()}>
+                        Tentar Novamente
+                      </Button>
+                    </div>
+                  ) : (
+                    <div>
+                      <p>Nenhum documento encontrado</p>
+                      <p className="text-sm">Tente ajustar os filtros de busca ou faça upload de um documento</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {hasMore && documentosFiltrados.length > 0 && (
+                <div className="text-center mt-4">
+                  <Button variant="outline" onClick={loadMore} disabled={loading}>
+                    {loading ? "Carregando..." : "Carregar Mais"}
+                  </Button>
                 </div>
               )}
             </div>
@@ -552,7 +728,11 @@ export default function Documentos() {
         {/* Modals */}
         <DocumentUploadModal 
           isOpen={uploadModalOpen} 
-          onClose={() => setUploadModalOpen(false)} 
+          onClose={() => setUploadModalOpen(false)}
+          onUploadSuccess={() => {
+            refetch();
+            setUploadModalOpen(false);
+          }}
         />
         
         <DocumentViewer

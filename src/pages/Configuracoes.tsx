@@ -10,6 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Users, 
   Settings, 
@@ -21,15 +24,133 @@ import {
   Bot,
   Plus,
   Trash2,
-  Edit
+  Edit,
+  Loader2,
+  AlertTriangle,
+  RefreshCw,
+  Shield,
+  UserCog,
+  User,
+  Mail,
+  Key,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { toast } from "sonner";
+import { useForm } from "react-hook-form";
+import { useUsers, CreateUserData, UpdateUserData } from "@/hooks/useUsers";
+
+const getUserTypeColor = (userType: string) => {
+  switch (userType) {
+    case "admin": return "bg-red-100 text-red-800 border-red-300";
+    case "funcionario": return "bg-blue-100 text-blue-800 border-blue-300";
+    case "cliente": return "bg-green-100 text-green-800 border-green-300";
+    default: return "bg-gray-100 text-gray-800 border-gray-300";
+  }
+};
+
+const getUserTypeIcon = (userType: string) => {
+  switch (userType) {
+    case "admin": return Shield;
+    case "funcionario": return UserCog;
+    case "cliente": return User;
+    default: return User;
+  }
+};
 
 const Configuracoes = () => {
   const [activeTab, setActiveTab] = useState("usuarios");
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<string | null>(null);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  
+  const { users, loading, error, refetch, createUser, updateUser, deleteUser } = useUsers();
+
+  const createForm = useForm<CreateUserData>({
+    defaultValues: {
+      name: "",
+      email: "",
+      user_type: "cliente",
+      password: "",
+      is_active: true
+    }
+  });
+
+  const editForm = useForm<UpdateUserData>({
+    defaultValues: {
+      name: "",
+      email: "",
+      user_type: "cliente",
+      password: "",
+      is_active: true
+    }
+  });
 
   const handleSave = () => {
     toast.success("Configurações salvas com sucesso!");
+  };
+
+  const onCreateUser = async (data: CreateUserData) => {
+    const success = await createUser(data);
+    if (success) {
+      setIsCreateDialogOpen(false);
+      setShowCreatePassword(false);
+      createForm.reset();
+      toast.success("Usuário criado com sucesso!");
+    } else {
+      toast.error("Erro ao criar usuário");
+    }
+  };
+
+  const onUpdateUser = async (data: UpdateUserData) => {
+    if (!selectedUser) return;
+    
+    const success = await updateUser(selectedUser, data);
+    if (success) {
+      setIsEditDialogOpen(false);
+      setShowEditPassword(false);
+      setSelectedUser(null);
+      editForm.reset();
+      toast.success("Usuário atualizado com sucesso!");
+    } else {
+      toast.error("Erro ao atualizar usuário");
+    }
+  };
+
+  const onDeleteUser = async () => {
+    if (!selectedUser) return;
+    
+    const success = await deleteUser(selectedUser);
+    if (success) {
+      setIsDeleteDialogOpen(false);
+      setSelectedUser(null);
+      toast.success("Usuário deletado com sucesso!");
+    } else {
+      toast.error("Erro ao deletar usuário");
+    }
+  };
+
+  const openEditDialog = (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (user) {
+      editForm.reset({
+        name: user.name,
+        email: user.email,
+        user_type: user.user_type,
+        is_active: user.is_active,
+        password: ""
+      });
+      setSelectedUser(userId);
+      setIsEditDialogOpen(true);
+    }
+  };
+
+  const openDeleteDialog = (userId: string) => {
+    setSelectedUser(userId);
+    setIsDeleteDialogOpen(true);
   };
 
   return (
@@ -85,120 +206,197 @@ const Configuracoes = () => {
             {/* Usuários e Permissões */}
             <TabsContent value="usuarios">
               <div className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Usuários e Permissões</CardTitle>
-                    <CardDescription>
-                      Gerencie usuários e suas permissões no sistema
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <h3 className="text-lg font-medium">Usuários Cadastrados</h3>
-                      <Button>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Novo Usuário
+                {loading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="flex items-center">
+                      <Loader2 className="w-8 h-8 animate-spin mr-4" />
+                      <div>
+                        <h2 className="text-xl font-semibold">Carregando usuários...</h2>
+                        <p className="text-muted-foreground">Conectando ao banco de dados</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : error ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="text-center">
+                      <AlertTriangle className="w-16 h-16 text-destructive mx-auto mb-4" />
+                      <h2 className="text-xl font-semibold mb-2">Erro ao carregar dados</h2>
+                      <p className="text-muted-foreground mb-4">{error}</p>
+                      <Button onClick={refetch}>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Tentar novamente
                       </Button>
                     </div>
-                    
-                    <div className="border rounded-lg">
-                      <div className="grid grid-cols-5 gap-4 p-4 border-b font-medium">
-                        <div>Nome</div>
-                        <div>E-mail</div>
-                        <div>Perfil</div>
-                        <div>Status</div>
-                        <div>Ações</div>
-                      </div>
-                      <div className="grid grid-cols-5 gap-4 p-4">
-                        <div>João Silva</div>
-                        <div>joao@empresa.com</div>
-                        <div><Badge>Administrador</Badge></div>
-                        <div><Badge variant="outline">Ativo</Badge></div>
+                  </div>
+                ) : (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Usuários e Permissões</CardTitle>
+                      <CardDescription>
+                        Gerencie usuários e suas permissões no sistema ({users.length} usuários cadastrados)
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-lg font-medium">Usuários Cadastrados</h3>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            <Edit className="h-4 w-4" />
+                          <Button variant="outline" onClick={refetch}>
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Atualizar
                           </Button>
-                          <Button size="sm" variant="outline">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+                            <DialogTrigger asChild>
+                              <Button>
+                                <Plus className="h-4 w-4 mr-2" />
+                                Novo Usuário
+                              </Button>
+                            </DialogTrigger>
+                          </Dialog>
                         </div>
                       </div>
-                    </div>
-
-                    <Separator />
-
-                    <div>
-                      <h3 className="text-lg font-medium mb-4">Perfis de Permissão</h3>
-                      <div className="grid grid-cols-3 gap-4">
-                        <Card>
-                          <CardHeader>
-                            <CardTitle className="text-base">Administrador</CardTitle>
-                            <CardDescription>Acesso total ao sistema</CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-2 text-sm">
-                              <div className="flex items-center gap-2">
-                                <Switch checked />
-                                <span>Configurações</span>
+                      
+                      <div className="border rounded-lg">
+                        <div className="grid grid-cols-6 gap-4 p-4 border-b font-medium">
+                          <div>Nome</div>
+                          <div>E-mail</div>
+                          <div>Perfil</div>
+                          <div>Status</div>
+                          <div>Senha</div>
+                          <div>Ações</div>
+                        </div>
+                        {users.length === 0 ? (
+                          <div className="p-8 text-center text-muted-foreground">
+                            Nenhum usuário encontrado
+                          </div>
+                        ) : (
+                          users.map((user) => {
+                            const TypeIcon = getUserTypeIcon(user.user_type);
+                            return (
+                              <div key={user.id} className="grid grid-cols-6 gap-4 p-4 border-b last:border-b-0">
+                                <div className="flex items-center space-x-3">
+                                  <div className="w-8 h-8 bg-brand-primary rounded-full flex items-center justify-center">
+                                    <span className="text-xs font-bold text-brand-dark">
+                                      {user.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U'}
+                                    </span>
+                                  </div>
+                                  <div className="font-medium">{user.name}</div>
+                                </div>
+                                <div className="flex items-center">
+                                  <Mail className="w-4 h-4 mr-2 text-muted-foreground" />
+                                  {user.email}
+                                </div>
+                                <div>
+                                  <Badge className={getUserTypeColor(user.user_type)}>
+                                    <TypeIcon className="w-3 h-3 mr-1" />
+                                    {user.user_type === 'admin' ? 'Admin' : 
+                                     user.user_type === 'funcionario' ? 'Funcionário' : 'Cliente'}
+                                  </Badge>
+                                </div>
+                                <div>
+                                  <Badge variant={user.is_active ? "default" : "outline"}>
+                                    {user.is_active ? 'Ativo' : 'Inativo'}
+                                  </Badge>
+                                </div>
+                                <div>
+                                  <Badge variant={user.has_password ? "default" : "secondary"}>
+                                    <Key className="w-3 h-3 mr-1" />
+                                    {user.has_password ? 'Definida' : 'Pendente'}
+                                  </Badge>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button size="sm" variant="outline" onClick={() => openEditDialog(user.id)}>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={() => openDeleteDialog(user.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <Switch checked />
-                                <span>Usuários</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Switch checked />
-                                <span>Relatórios</span>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-
-                        <Card>
-                          <CardHeader>
-                            <CardTitle className="text-base">Operador</CardTitle>
-                            <CardDescription>Operações básicas</CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-2 text-sm">
-                              <div className="flex items-center gap-2">
-                                <Switch />
-                                <span>Configurações</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Switch checked />
-                                <span>Jornadas</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Switch checked />
-                                <span>Entregas</span>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-
-                        <Card>
-                          <CardHeader>
-                            <CardTitle className="text-base">Visualizador</CardTitle>
-                            <CardDescription>Apenas leitura</CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-2 text-sm">
-                              <div className="flex items-center gap-2">
-                                <Switch />
-                                <span>Editar dados</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Switch checked />
-                                <span>Visualizar relatórios</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Switch checked />
-                                <span>Dashboard</span>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
+                            );
+                          })
+                        )}
                       </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Perfis de Permissão</CardTitle>
+                    <CardDescription>
+                      Configure perfis e permissões para diferentes tipos de usuários
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-3 gap-4">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Administrador</CardTitle>
+                          <CardDescription>Acesso total ao sistema</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex items-center gap-2">
+                              <Switch checked />
+                              <span>Configurações</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Switch checked />
+                              <span>Usuários</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Switch checked />
+                              <span>Relatórios</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Funcionário</CardTitle>
+                          <CardDescription>Operações básicas</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex items-center gap-2">
+                              <Switch />
+                              <span>Configurações</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Switch checked />
+                              <span>Jornadas</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Switch checked />
+                              <span>Entregas</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Cliente</CardTitle>
+                          <CardDescription>Apenas leitura</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex items-center gap-2">
+                              <Switch />
+                              <span>Editar dados</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Switch checked />
+                              <span>Visualizar relatórios</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Switch checked />
+                              <span>Dashboard</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
                     </div>
                   </CardContent>
                 </Card>
@@ -1150,6 +1348,288 @@ const Configuracoes = () => {
             </TabsContent>
           </Tabs>
         </div>
+
+        {/* Dialog para criar usuário */}
+        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Criar Novo Usuário</DialogTitle>
+              <DialogDescription>
+                Preencha os dados do novo usuário. A senha padrão "mit2024" será utilizada se não for especificada.
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...createForm}>
+              <form onSubmit={createForm.handleSubmit(onCreateUser)} className="space-y-4">
+                <FormField
+                  control={createForm.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nome Completo</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Digite o nome completo" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={createForm.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>E-mail</FormLabel>
+                      <FormControl>
+                        <Input type="email" placeholder="Digite o e-mail" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={createForm.control}
+                  name="user_type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tipo de Usuário</FormLabel>
+                      <FormControl>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o tipo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="admin">Administrador</SelectItem>
+                            <SelectItem value="funcionario">Funcionário</SelectItem>
+                            <SelectItem value="cliente">Cliente</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={createForm.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Senha (opcional)</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input 
+                            type={showCreatePassword ? "text" : "password"} 
+                            placeholder="Deixe vazio para usar senha padrão" 
+                            {...field} 
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                            onClick={() => setShowCreatePassword(!showCreatePassword)}
+                          >
+                            {showCreatePassword ? (
+                              <EyeOff className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <Eye className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </Button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={createForm.control}
+                  name="is_active"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                      <div className="space-y-0.5">
+                        <FormLabel>Usuário Ativo</FormLabel>
+                        <FormDescription>
+                          O usuário poderá fazer login no sistema
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <div className="flex justify-end space-x-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => {
+                    setIsCreateDialogOpen(false);
+                    setShowCreatePassword(false);
+                  }}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" className="bg-brand-primary hover:bg-brand-primary/90 text-brand-dark">
+                    Criar Usuário
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog para editar usuário */}
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Editar Usuário</DialogTitle>
+              <DialogDescription>
+                Altere os dados do usuário. Deixe a senha vazia para manter a atual.
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...editForm}>
+              <form onSubmit={editForm.handleSubmit(onUpdateUser)} className="space-y-4">
+                <FormField
+                  control={editForm.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nome Completo</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Digite o nome completo" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editForm.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>E-mail</FormLabel>
+                      <FormControl>
+                        <Input type="email" placeholder="Digite o e-mail" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editForm.control}
+                  name="user_type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tipo de Usuário</FormLabel>
+                      <FormControl>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o tipo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="admin">Administrador</SelectItem>
+                            <SelectItem value="funcionario">Funcionário</SelectItem>
+                            <SelectItem value="cliente">Cliente</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editForm.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nova Senha (opcional)</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input 
+                            type={showEditPassword ? "text" : "password"} 
+                            placeholder="Deixe vazio para manter a atual" 
+                            {...field} 
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                            onClick={() => setShowEditPassword(!showEditPassword)}
+                          >
+                            {showEditPassword ? (
+                              <EyeOff className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <Eye className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </Button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editForm.control}
+                  name="is_active"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                      <div className="space-y-0.5">
+                        <FormLabel>Usuário Ativo</FormLabel>
+                        <FormDescription>
+                          O usuário poderá fazer login no sistema
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <div className="flex justify-end space-x-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => {
+                    setIsEditDialogOpen(false);
+                    setShowEditPassword(false);
+                  }}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" className="bg-brand-primary hover:bg-brand-primary/90 text-brand-dark">
+                    Salvar Alterações
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog para deletar usuário */}
+        <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Deletar Usuário</DialogTitle>
+              <DialogDescription>
+                Tem certeza que deseja deletar este usuário? Esta ação não pode ser desfeita.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  O usuário será permanentemente removido do sistema.
+                </AlertDescription>
+              </Alert>
+              <div className="flex justify-end space-x-2 pt-4">
+                <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button variant="destructive" onClick={onDeleteUser}>
+                  Deletar Usuário
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );

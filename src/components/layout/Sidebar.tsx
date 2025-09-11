@@ -10,11 +10,14 @@ import {
   Activity,
   LogOut,
   User,
-  ChevronDown
+  ChevronDown,
+  UserCog
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 
 const getCurrentPath = () => window.location.pathname;
 
@@ -23,6 +26,7 @@ const navigation = [
   { name: "Jornadas", icon: Route, href: "/jornadas", current: false },
   { name: "Entregas", icon: Truck, href: "/entregas", current: false },
   { name: "Clientes", icon: Users, href: "/clientes", current: false },
+  { name: "Usuários", icon: UserCog, href: "/usuarios", current: false },
   { name: "Documentos", icon: FileText, href: "/documentos", current: false },
   { name: "Relatórios", icon: TrendingUp, href: "/relatorios", current: false },
   { name: "Chat", icon: MessageCircle, href: "/chat", current: false },
@@ -39,11 +43,12 @@ const getNavigationWithCurrent = () => {
 
 export const Sidebar = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const { user, logout, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
 
   const handleLogout = () => {
-    // Implementar lógica de logout aqui
-    console.log("Fazendo logout...");
-    window.location.href = "/login";
+    logout();
+    navigate("/login");
   };
 
   const handleProfile = () => {
@@ -95,11 +100,17 @@ export const Sidebar = () => {
           <DropdownMenuTrigger asChild>
             <button className="w-full flex items-center space-x-3 p-2 rounded-lg hover:bg-sidebar-hover transition-colors duration-200">
               <div className="w-8 h-8 bg-brand-primary rounded-full flex items-center justify-center">
-                <span className="text-xs font-bold text-brand-dark">JS</span>
+                <span className="text-xs font-bold text-brand-dark">
+                  {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U'}
+                </span>
               </div>
               <div className="flex-1 min-w-0 text-left">
-                <p className="text-sm font-medium text-sidebar-text truncate">João Silva</p>
-                <p className="text-xs text-sidebar-text-muted truncate">Operador Logístico</p>
+                <p className="text-sm font-medium text-sidebar-text truncate">{user?.name || 'Usuário'}</p>
+                <p className="text-xs text-sidebar-text-muted truncate">
+                  {user?.user_type === 'cliente' ? 'Cliente' : 
+                   user?.user_type === 'funcionario' ? 'Funcionário' : 
+                   user?.user_type === 'admin' ? 'Administrador' : 'Operador'}
+                </p>
               </div>
               <ChevronDown className={cn(
                 "w-4 h-4 text-sidebar-text-muted transition-transform duration-200",

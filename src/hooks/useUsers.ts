@@ -1,0 +1,246 @@
+/**
+ * Hook para gerenciar usuários via API
+ */
+import { useState, useEffect } from 'react';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  user_type: string;
+  is_active: boolean;
+  created_at: string;
+  last_login?: string;
+  has_password: boolean;
+}
+
+export interface CreateUserData {
+  name: string;
+  email: string;
+  user_type: string;
+  password?: string;
+  is_active?: boolean;
+}
+
+export interface UpdateUserData {
+  name?: string;
+  email?: string;
+  user_type?: string;
+  password?: string;
+  is_active?: boolean;
+}
+
+interface UseUsersReturn {
+  users: User[];
+  loading: boolean;
+  error: string | null;
+  refetch: () => void;
+  setDefaultPasswords: (forceUpdate?: boolean) => Promise<boolean>;
+  changePassword: (userId: string, newPassword: string) => Promise<boolean>;
+  createUser: (userData: CreateUserData) => Promise<boolean>;
+  updateUser: (userId: string, userData: UpdateUserData) => Promise<boolean>;
+  deleteUser: (userId: string) => Promise<boolean>;
+}
+
+const API_BASE_URL = 'http://localhost:8001';
+
+export const useUsers = (): UseUsersReturn => {
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(`${API_BASE_URL}/api/mittracking/users/list`);
+      
+      if (!response.ok) {
+        throw new Error(`Erro ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      setUsers(data);
+      
+    } catch (err) {
+      console.error('Erro ao carregar usuários:', err);
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setDefaultPasswords = async (forceUpdate: boolean = false): Promise<boolean> => {
+    try {
+      setError(null);
+      
+      const url = forceUpdate 
+        ? `${API_BASE_URL}/api/mittracking/users/set-default-passwords?force_update=true`
+        : `${API_BASE_URL}/api/mittracking/users/set-default-passwords`;
+        
+      const response = await fetch(url, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await fetchUsers(); // Recarregar lista
+        return true;
+      } else {
+        throw new Error(data.message || 'Erro ao definir senhas padrão');
+      }
+    } catch (err) {
+      console.error('Erro ao definir senhas padrão:', err);
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+      return false;
+    }
+  };
+
+  const changePassword = async (userId: string, newPassword: string): Promise<boolean> => {
+    try {
+      setError(null);
+      
+      const response = await fetch(`${API_BASE_URL}/api/mittracking/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          new_password: newPassword,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await fetchUsers(); // Recarregar lista
+        return true;
+      } else {
+        throw new Error(data.message || 'Erro ao alterar senha');
+      }
+    } catch (err) {
+      console.error('Erro ao alterar senha:', err);
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+      return false;
+    }
+  };
+
+  const createUser = async (userData: CreateUserData): Promise<boolean> => {
+    try {
+      setError(null);
+      
+      const response = await fetch(`${API_BASE_URL}/api/mittracking/users/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `Erro ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await fetchUsers(); // Recarregar lista
+        return true;
+      } else {
+        throw new Error(data.message || 'Erro ao criar usuário');
+      }
+    } catch (err) {
+      console.error('Erro ao criar usuário:', err);
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+      return false;
+    }
+  };
+
+  const updateUser = async (userId: string, userData: UpdateUserData): Promise<boolean> => {
+    try {
+      setError(null);
+      
+      const response = await fetch(`${API_BASE_URL}/api/mittracking/users/${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `Erro ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await fetchUsers(); // Recarregar lista
+        return true;
+      } else {
+        throw new Error(data.message || 'Erro ao atualizar usuário');
+      }
+    } catch (err) {
+      console.error('Erro ao atualizar usuário:', err);
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+      return false;
+    }
+  };
+
+  const deleteUser = async (userId: string): Promise<boolean> => {
+    try {
+      setError(null);
+      
+      const response = await fetch(`${API_BASE_URL}/api/mittracking/users/${userId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `Erro ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await fetchUsers(); // Recarregar lista
+        return true;
+      } else {
+        throw new Error(data.message || 'Erro ao deletar usuário');
+      }
+    } catch (err) {
+      console.error('Erro ao deletar usuário:', err);
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  return {
+    users,
+    loading,
+    error,
+    refetch: fetchUsers,
+    setDefaultPasswords,
+    changePassword,
+    createUser,
+    updateUser,
+    deleteUser
+  };
+};
