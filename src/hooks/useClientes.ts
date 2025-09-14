@@ -48,7 +48,7 @@ export const useClientes = (): UseClientesReturn => {
       setError(null);
       
       // Buscar lista de clientes da API MitTracking
-      const response = await fetch('http://localhost:8001/api/mittracking/clients/list');
+      const response = await fetch('http://localhost:8000/api/mittracking/clients/list');
       
       if (!response.ok) {
         throw new Error(`Erro ${response.status}: ${response.statusText}`);
@@ -67,7 +67,7 @@ export const useClientes = (): UseClientesReturn => {
 
   const createCliente = async (clienteData: any) => {
     try {
-      const response = await fetch('http://localhost:8001/api/mittracking/clients/create', {
+      const response = await fetch('http://localhost:8000/api/mittracking/clients/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

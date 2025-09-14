@@ -72,7 +72,7 @@ interface UseDocumentsReturn {
   loadMore: () => void;
 }
 
-const API_BASE_URL = 'http://localhost:8001';
+const API_BASE_URL = 'http://localhost:8000';
 
 export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsReturn => {
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -91,14 +91,14 @@ export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsRetu
       
       // Construir query parameters
       const params = new URLSearchParams();
-      if (filters.user_id) params.append('user_id', filters.user_id);
       if (filters.category) params.append('category', filters.category);
       if (filters.status) params.append('status', filters.status);
       if (filters.origem_upload) params.append('origem_upload', filters.origem_upload);
       params.append('limit', limit.toString());
       params.append('skip', skip.toString());
       
-      const response = await fetch(`${API_BASE_URL}/api/mittracking/documents/list?${params.toString()}`);
+      // Usar endpoint de admin para ver todos os documentos
+      const response = await fetch(`${API_BASE_URL}/files/admin/all-documents?${params.toString()}`);
       
       if (!response.ok) {
         throw new Error(`Erro ${response.status}: ${response.statusText}`);
@@ -106,18 +106,39 @@ export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsRetu
       
       const data = await response.json();
       
-      if (data.success) {
-        if (append) {
-          setDocuments(prev => [...prev, ...data.documents]);
-        } else {
-          setDocuments(data.documents);
-        }
-        setTotalDocuments(data.pagination.total);
-        setHasMore(data.pagination.has_more);
-        setCurrentSkip(skip + data.documents.length);
+      // Transformar dados da API para o formato esperado pelo frontend
+      const transformedDocuments = data.documents.map((doc: any) => ({
+        id: doc.id,
+        file_id: doc.file_id,
+        numero: doc.original_name,
+        tipo: doc.category?.toUpperCase() || 'OTHER',
+        cliente: doc.order_info?.customer_name || 'Cliente não informado',
+        jornada: doc.order_info?.title || '',
+        origem: 'N/A',
+        destino: 'N/A',
+        dataUpload: doc.uploaded_at,
+        dataEmissao: doc.uploaded_at,
+        status: doc.processing_status === 'indexed' ? 'Validado' : 
+                doc.processing_status === 'uploaded' ? 'Pendente Validação' : 
+                doc.processing_status === 'error' ? 'Rejeitado' : 'Processando',
+        tamanho: `${(doc.size_bytes / 1024 / 1024).toFixed(2)} MB`,
+        versao: 1,
+        uploadPor: 'Sistema',
+        origem_upload: 'manual',
+        visualizacoes: 0,
+        ultimaVisualizacao: doc.uploaded_at,
+        s3_url: doc.s3_url,
+        order_id: doc.order_id
+      }));
+      
+      if (append) {
+        setDocuments(prev => [...prev, ...transformedDocuments]);
       } else {
-        throw new Error('Resposta de API inválida');
+        setDocuments(transformedDocuments);
       }
+      setTotalDocuments(data.pagination.total);
+      setHasMore(data.pagination.has_more);
+      setCurrentSkip(skip + transformedDocuments.length);
       
     } catch (err) {
       console.error('Erro ao carregar documentos:', err);
@@ -153,11 +174,16 @@ export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsRetu
       
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('user_id', userId);
-      formData.append('category', category);
-      formData.append('public', 'true');
       
-      const response = await fetch(`${API_BASE_URL}/api/mittracking/documents/upload`, {
+      // Usar uma Order padrão para demonstração - em produção, isso deveria ser selecionado pelo usuário
+      const defaultOrderId = 'e53c5a9d-1ccc-4639-9761-8850775ae597';
+      
+      const params = new URLSearchParams();
+      params.append('order_id', defaultOrderId);
+      params.append('category', category);
+      params.append('public', 'true');
+      
+      const response = await fetch(`${API_BASE_URL}/files/upload?${params.toString()}`, {
         method: 'POST',
         body: formData,
       });
@@ -169,7 +195,7 @@ export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsRetu
 
       const data = await response.json();
       
-      if (data.success) {
+      if (data.message && data.message.includes('sucesso')) {
         // Recarregar lista de documentos após upload bem-sucedido
         refetch();
         return true;
@@ -190,12 +216,7 @@ export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsRetu
     try {
       setError(null);
       
-      const params = new URLSearchParams();
-      if (userId) params.append('user_id', userId);
-      
-      const url = `${API_BASE_URL}/api/mittracking/documents/${documentId}/details${params.toString() ? '?' + params.toString() : ''}`;
-      
-      const response = await fetch(url);
+      const response = await fetch(`${API_BASE_URL}/files/${documentId}/metadata`);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -204,11 +225,34 @@ export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsRetu
 
       const data = await response.json();
       
-      if (data.success) {
-        return data.document;
-      } else {
-        throw new Error('Erro ao buscar detalhes do documento');
-      }
+      // Transformar dados para o formato esperado
+      const details: DocumentDetails = {
+        id: data.document.id,
+        file_id: data.document.file_id,
+        original_name: data.document.original_name,
+        file_type: data.document.file_type,
+        size_bytes: data.document.size_bytes,
+        category: data.document.category || 'other',
+        processing_status: data.document.processing_status || 'unknown',
+        uploaded_at: data.document.uploaded_at,
+        last_accessed: undefined,
+        access_count: 0,
+        s3_url: data.document.s3_url,
+        is_public: data.document.is_public || false,
+        tags: data.document.tags || [],
+        text_content_available: data.document.text_content_length > 0,
+        has_embedding: data.document.has_embedding || false,
+        processing_logs: [],
+        order: data.order ? {
+          order_id: data.order.order_id,
+          title: data.order.title,
+          customer_name: data.order.customer_name,
+          status: data.order.status,
+          created_at: data.order.created_at
+        } : undefined
+      };
+      
+      return details;
     } catch (err) {
       console.error('Erro ao buscar detalhes do documento:', err);
       setError(err instanceof Error ? err.message : 'Erro desconhecido');
@@ -220,7 +264,7 @@ export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsRetu
     try {
       setError(null);
       
-      const response = await fetch(`${API_BASE_URL}/api/mittracking/documents/${documentId}/download`);
+      const response = await fetch(`${API_BASE_URL}/files/${documentId}/download`);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -229,11 +273,7 @@ export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsRetu
 
       const data = await response.json();
       
-      if (data.success) {
-        return data.download_url;
-      } else {
-        throw new Error('Erro ao gerar URL de download');
-      }
+      return data.download_url;
     } catch (err) {
       console.error('Erro ao fazer download:', err);
       setError(err instanceof Error ? err.message : 'Erro desconhecido');

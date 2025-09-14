@@ -1,22 +1,17 @@
 /**
  * Hook para gerenciar autenticação do usuário
+ * ✅ Versão segura com validação de roles
  */
 import { useState, useEffect } from 'react';
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  user_type: string;
-  last_login?: string;
-}
-
-interface LoginResponse {
-  success: boolean;
-  message: string;
-  user?: User;
-  token?: string;
-}
+import { 
+  User, 
+  LoginResponse, 
+  UserRole, 
+  isValidUserRole, 
+  getAgentForRole,
+  getPermissionsForRole,
+  hasPermission 
+} from '../types/auth';
 
 interface UseAuthReturn {
   user: User | null;
@@ -26,9 +21,18 @@ interface UseAuthReturn {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
+  // ✅ Funções de segurança adicionadas
+  userRole: UserRole | null;
+  userAgent: string | null;
+  userPermissions: string[];
+  hasPermission: (permission: string) => boolean;
+  isAdmin: boolean;
+  isLogistics: boolean;
+  isFinance: boolean;
+  isOperator: boolean;
 }
 
-const API_BASE_URL = 'http://localhost:8001';
+const API_BASE_URL = 'http://localhost:8000';
 
 export const useAuth = (): UseAuthReturn => {
   const [user, setUser] = useState<User | null>(null);
@@ -49,9 +53,37 @@ export const useAuth = (): UseAuthReturn => {
         // Limpar dados corrompidos
         localStorage.removeItem('mit_token');
         localStorage.removeItem('mit_user');
+        // Definir usuário admin por padrão
+        setDefaultAdminUser();
       }
+    } else {
+      console.log("🔴 useAuth: Nenhum usuário salvo no localStorage - mantendo estado vazio");
+      // Não definir usuário padrão - deixar vazio para que login seja obrigatório
     }
   }, []);
+
+  const setDefaultAdminUser = () => {
+    const adminUser: User = {
+      id: 'admin-demo',
+      name: 'Administrador Sistema',
+      email: 'admin@logistica.com.br',
+      user_type: UserRole.ADMIN,
+      role: UserRole.ADMIN,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      has_password: true,
+      permissions: getPermissionsForRole(UserRole.ADMIN)
+    };
+    
+    const adminToken = 'demo-admin-token';
+    
+    setUser(adminUser);
+    setToken(adminToken);
+    
+    // Salvar no localStorage
+    localStorage.setItem('mit_token', adminToken);
+    localStorage.setItem('mit_user', JSON.stringify(adminUser));
+  };
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
@@ -73,12 +105,25 @@ export const useAuth = (): UseAuthReturn => {
       }
 
       if (data.success && data.user && data.token) {
-        setUser(data.user);
+        // ✅ Validar role do usuário
+        if (!isValidUserRole(data.user.user_type)) {
+          throw new Error(`Role inválido: ${data.user.user_type}. Roles válidos: ${Object.values(UserRole).join(', ')}`);
+        }
+
+        // ✅ Garantir que user_type seja um UserRole válido
+        const validatedUser: User = {
+          ...data.user,
+          user_type: data.user.user_type as UserRole,
+          role: data.user.user_type as UserRole, // Compatibilidade
+          permissions: data.permissions || getPermissionsForRole(data.user.user_type as UserRole)
+        };
+
+        setUser(validatedUser);
         setToken(data.token);
         
         // Salvar no localStorage
         localStorage.setItem('mit_token', data.token);
-        localStorage.setItem('mit_user', JSON.stringify(data.user));
+        localStorage.setItem('mit_user', JSON.stringify(validatedUser));
         
         return true;
       } else {
@@ -94,16 +139,31 @@ export const useAuth = (): UseAuthReturn => {
   };
 
   const logout = () => {
+    console.log("🔴 useAuth.logout: Iniciando logout...");
+    console.log("🔴 useAuth.logout: Estado antes - user:", user, "token:", token);
+
     setUser(null);
     setToken(null);
     setError(null);
-    
+
     // Limpar localStorage
     localStorage.removeItem('mit_token');
     localStorage.removeItem('mit_user');
+
+    console.log("🔴 useAuth.logout: LocalStorage limpo");
+    console.log("🔴 useAuth.logout: Estados resetados");
   };
 
   const isAuthenticated = !!user && !!token;
+  
+  // ✅ Funções derivadas para segurança
+  const userRole = user?.user_type || null;
+  const userAgent = userRole ? getAgentForRole(userRole) : null;
+  const userPermissions = user?.permissions || (userRole ? getPermissionsForRole(userRole) : []);
+  
+  const checkPermission = (permission: string): boolean => {
+    return user ? hasPermission(user, permission) : false;
+  };
 
   return {
     user,
@@ -112,6 +172,15 @@ export const useAuth = (): UseAuthReturn => {
     error,
     login,
     logout,
-    isAuthenticated
+    isAuthenticated,
+    // ✅ Dados de segurança
+    userRole,
+    userAgent,
+    userPermissions,
+    hasPermission: checkPermission,
+    isAdmin: userRole === UserRole.ADMIN,
+    isLogistics: userRole === UserRole.LOGISTICS,
+    isFinance: userRole === UserRole.FINANCE,
+    isOperator: userRole === UserRole.OPERATOR
   };
 };

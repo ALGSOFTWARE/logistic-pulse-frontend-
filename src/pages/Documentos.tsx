@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/components/ui/use-toast";
 import { useDocuments } from "@/hooks/useDocuments";
 import { useUsers } from "@/hooks/useUsers";
+import { useAuth } from "../contexts/AuthContext";
 import { 
   FileText, 
   Upload, 
@@ -399,7 +400,8 @@ export default function Documentos() {
   
   // Hooks para dados reais
   const { users } = useUsers();
-  const currentUser = users[0]; // Para demonstração, usar primeiro usuário
+  const { user: authUser, isAdmin, hasPermission } = useAuth();
+  const currentUser = authUser || users[0]; // Usar usuário autenticado ou primeiro da lista
   const { 
     documents, 
     loading, 
@@ -478,14 +480,44 @@ export default function Documentos() {
     rejeitados: documents.filter(d => d.status === "Rejeitado").length,
   }), [documents, totalDocuments]);
 
+  // Verificação de permissão de administrador
+  if (!isAdmin) {
+    return (
+      <AppLayout>
+        <div className="p-6 text-center">
+          <Shield className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+          <h2 className="text-2xl font-bold mb-2">Acesso Restrito</h2>
+          <p className="text-muted-foreground mb-4">
+            Esta página é exclusiva para administradores do sistema.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Usuário atual: {currentUser?.name || 'Não autenticado'} 
+            {currentUser?.user_type ? ` (${currentUser.user_type})` : ''}
+          </p>
+        </div>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout>
       <div className="p-6 space-y-6 h-full overflow-y-auto">
         {/* Header */}
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Central de Documentos</h1>
-            <p className="text-muted-foreground">Gerencie todos os documentos da jornada logística</p>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-3xl font-bold text-foreground">Central de Documentos</h1>
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                <Shield className="h-3 w-3 mr-1" />
+                Admin
+              </Badge>
+            </div>
+            <p className="text-muted-foreground">
+              Visualização administrativa - Todos os documentos do sistema
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Logado como: {currentUser?.name} ({currentUser?.user_type})
+            </p>
           </div>
           <Button onClick={() => setUploadModalOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />

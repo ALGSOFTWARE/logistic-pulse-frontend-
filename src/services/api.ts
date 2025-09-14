@@ -8,7 +8,7 @@
  * - Autenticação
  */
 
-const API_BASE_URL = 'http://localhost:8001'; // Porta do gatekeeper-api
+const API_BASE_URL = 'http://localhost:8000'; // Porta do gatekeeper-api
 
 export interface ChatMessage {
   id: string;
@@ -194,6 +194,128 @@ class ApiService {
   }
 
   /**
+   * Criar contexto do usuário
+   */
+  async createUserContext(data: {
+    context_type: 'SHORT_TERM' | 'GENERAL';
+    content: Record<string, any>;
+    session_id?: string;
+    expires_at?: string;
+  }): Promise<any> {
+    return this.request(`/api/mittracking/ai/contexts/user`, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: this.userId,
+        ...data
+      }),
+    });
+  }
+
+  /**
+   * Atualizar contexto do usuário
+   */
+  async updateUserContext(contextId: string, data: {
+    content?: Record<string, any>;
+    expires_at?: string;
+    is_active?: boolean;
+  }): Promise<any> {
+    return this.request(`/api/mittracking/ai/contexts/user/${contextId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Listar contextos do usuário
+   */
+  async listUserContexts(params?: {
+    context_type?: 'SHORT_TERM' | 'GENERAL';
+    session_id?: string;
+    is_active?: boolean;
+    limit?: number;
+    skip?: number;
+  }): Promise<any> {
+    const queryParams = new URLSearchParams({
+      user_id: this.userId,
+    });
+
+    if (params?.context_type) queryParams.append('context_type', params.context_type);
+    if (params?.session_id) queryParams.append('session_id', params.session_id);
+    if (params?.is_active !== undefined) queryParams.append('is_active', params.is_active.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.skip) queryParams.append('skip', params.skip.toString());
+
+    return this.request(`/api/mittracking/ai/contexts/user/list?${queryParams.toString()}`);
+  }
+
+  /**
+   * Obter contexto global
+   */
+  async getGlobalContext(params?: {
+    context_type?: 'SYSTEM' | 'COMPANY';
+    limit?: number;
+    skip?: number;
+  }): Promise<any> {
+    const queryParams = new URLSearchParams();
+
+    if (params?.context_type) queryParams.append('context_type', params.context_type);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.skip) queryParams.append('skip', params.skip.toString());
+
+    return this.request(`/api/mittracking/ai/contexts/global?${queryParams.toString()}`);
+  }
+
+  /**
+   * Criar histórico de conversa
+   */
+  async createConversationHistory(data: {
+    user_message: string;
+    agent_response: string;
+    agent_name: string;
+    session_id: string;
+    context_used: Record<string, any>;
+    metadata?: Record<string, any>;
+  }): Promise<any> {
+    return this.request(`/api/mittracking/ai/conversations`, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: this.userId,
+        ...data
+      }),
+    });
+  }
+
+  /**
+   * Listar histórico de conversas
+   */
+  async listConversationHistory(params?: {
+    session_id?: string;
+    agent_name?: string;
+    limit?: number;
+    skip?: number;
+  }): Promise<any> {
+    const queryParams = new URLSearchParams({
+      user_id: this.userId,
+    });
+
+    if (params?.session_id) queryParams.append('session_id', params.session_id);
+    if (params?.agent_name) queryParams.append('agent_name', params.agent_name);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.skip) queryParams.append('skip', params.skip.toString());
+
+    return this.request(`/api/mittracking/ai/conversations/history?${queryParams.toString()}`);
+  }
+
+  /**
+   * Limpar contextos expirados
+   */
+  async cleanupExpiredContexts(): Promise<any> {
+    return this.request(`/api/mittracking/ai/contexts/cleanup`, {
+      method: 'POST',
+    });
+  }
+
+  /**
    * ORDERS SERVICES
    */
 
@@ -209,6 +331,92 @@ class ApiService {
    */
   async getOrderDetails(orderId: string): Promise<any> {
     return this.request(`/orders/${orderId}?current_user_id=${this.userId}&current_user_role=${this.userRole}`);
+  }
+
+  /**
+   * Obter documentos de uma ordem específica
+   */
+  async getOrderDocuments(orderId: string): Promise<any> {
+    return this.request(`/orders/${orderId}/documents?current_user_id=${this.userId}&current_user_role=${this.userRole}`);
+  }
+
+  /**
+   * Listar ordens do usuário
+   */
+  async getUserOrders(params?: {
+    status?: string;
+    order_type?: string;
+    limit?: number;
+    skip?: number;
+  }): Promise<any> {
+    const queryParams = new URLSearchParams({
+      current_user_id: this.userId,
+      current_user_role: this.userRole,
+    });
+
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.order_type) queryParams.append('order_type', params.order_type);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.skip) queryParams.append('skip', params.skip.toString());
+
+    return this.request(`/orders/list?${queryParams.toString()}`);
+  }
+
+  /**
+   * MIT TRACKING SERVICES
+   */
+
+  /**
+   * Obter jornadas do usuário
+   */
+  async getUserJourneys(params?: {
+    status?: string;
+    client?: string;
+    limit?: number;
+    skip?: number;
+  }): Promise<any> {
+    const queryParams = new URLSearchParams({
+      user_id: this.userId,
+    });
+
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.client) queryParams.append('client', params.client);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.skip) queryParams.append('skip', params.skip.toString());
+
+    return this.request(`/api/mittracking/journeys?${queryParams.toString()}`);
+  }
+
+  /**
+   * Obter detalhes de uma jornada
+   */
+  async getJourneyDetails(journeyId: string): Promise<any> {
+    return this.request(`/api/mittracking/journeys/${journeyId}?user_id=${this.userId}`);
+  }
+
+  /**
+   * Obter documentos de uma jornada
+   */
+  async getJourneyDocuments(journeyId: string): Promise<any> {
+    return this.request(`/api/mittracking/journeys/${journeyId}/documents?user_id=${this.userId}`);
+  }
+
+  /**
+   * Conectar documentos ao contexto do usuário baseado em ordens/jornadas
+   */
+  async linkDocumentsToContext(data: {
+    session_id: string;
+    order_ids?: string[];
+    journey_ids?: string[];
+    document_categories?: string[];
+  }): Promise<any> {
+    return this.request(`/api/mittracking/ai/contexts/link-documents`, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: this.userId,
+        ...data
+      }),
+    });
   }
 
   /**

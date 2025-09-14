@@ -7,6 +7,8 @@ import { DocumentDetailModal } from "./DocumentDetailModal";
 import { SmartMenu, type MenuAction } from "./SmartMenu";
 import { MessageInterpreter, type InterpretationResult } from "./MessageInterpreter";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "../../contexts/AuthContext";
+import { useAIContext } from "@/hooks/useAIContext";
 import { apiService, type ChatMessage as ApiChatMessage } from "@/services/api";
 
 export type DocumentType = "CTE" | "AWL" | "BL" | "MANIFESTO" | "NF";
@@ -30,14 +32,34 @@ export const ChatContainer = () => {
   const [selectedDocument, setSelectedDocument] = useState<any>(null);
   const [sessionId, setSessionId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
-  const [userProfile, setUserProfile] = useState({
+  const [messages, setMessages] = useState<Message[]>([]);
+  
+  const { toast } = useToast();
+  const { user: currentUser } = useAuth();
+  const interpreter = new MessageInterpreter();
+  
+  // Initialize AI context management
+  const {
+    userContexts,
+    globalContexts,
+    createUserContext,
+    updateUserContext,
+    saveConversationEntry,
+    getMergedContext,
+    getActiveContextForSession
+  } = useAIContext(currentUser?.id);
+
+  // Get user profile (fallback for demo)
+  const userProfile = currentUser ? {
+    name: currentUser.name,
+    company: "MIT Tracking",
+    role: currentUser.user_type === 'admin' ? 'Administrador' : 
+          currentUser.user_type === 'funcionario' ? 'Funcionário' : 'Cliente'
+  } : {
     name: "Eduardo Silva", 
     company: "Mercosul Line",
     role: "Operador Logístico"
-  });
-  
-  const { toast } = useToast();
-  const interpreter = new MessageInterpreter();
+  };
 
   // Inicializar sessão de chat
   useEffect(() => {
@@ -46,22 +68,94 @@ export const ChatContainer = () => {
 
   const initChatSession = async () => {
     try {
-      const session = await apiService.createChatSession("Chat Inteligente");
-      setSessionId(session.session_id);
-      
-      // Carregar mensagem de boas-vindas
-      loadWelcomeMessage();
+      // Check if user is authenticated in MIT system
+      if (!currentUser || !currentUser.id) {
+        // Show login prompt for MIT system
+        const loginMessage: Message = {
+          id: "login-required",
+          type: "system",
+          content: `🔐 Autenticação Necessária
+
+Para usar o chat, você precisa fazer login no sistema localhost:8080.
+
+**Credenciais de teste:**
+📧 Email: joao@exemplo.com, pedro@exemplo.com, maria@exemplo.com
+🔑 Senha: mit2024
+
+👉 [Clique aqui para fazer login](/login)
+
+Após fazer login, volte a esta página.`,
+          timestamp: new Date(),
+        };
+
+        setMessages([loginMessage]);
+        return;
+      }
+
+      // Import gatekeeperApi and use MIT token
+      const { gatekeeperApi } = await import("@/services/gatekeeperApi");
+
+      // Initialize with MIT authentication
+      const user = gatekeeperApi.initFromMITStorage();
+      if (!user) {
+        throw new Error('Não foi possível usar token MIT para autenticação');
+      }
+
+      // Create authenticated session using MIT token
+      const sessionResponse = await gatekeeperApi.createChatSession("Chat Inteligente");
+
+      if (sessionResponse.success) {
+        setSessionId(sessionResponse.session_id);
+
+        // Criar contexto de curto prazo para esta sessão (usando mock para evitar 404)
+        if (currentUser?.id && createUserContext) {
+          const contextExpiry = new Date();
+          contextExpiry.setHours(contextExpiry.getHours() + 8); // 8 horas
+
+          await createUserContext({
+            context_type: 'SHORT_TERM',
+            content: {
+              session_started: new Date().toISOString(),
+              user_profile: userProfile,
+              active_session_id: sessionResponse.session_id,
+              chat_preferences: {
+                language: 'pt-BR',
+                assistance_level: 'intermediate'
+              }
+            },
+            session_id: sessionResponse.session_id,
+            expires_at: contextExpiry.toISOString()
+          });
+        }
+
+        loadWelcomeMessage();
+      } else {
+        throw new Error(sessionResponse.message || 'Erro ao criar sessão');
+      }
+
     } catch (error) {
       console.error("Erro ao inicializar sessão:", error);
       toast({
-        title: "Erro de Conexão",
-        description: "Não foi possível conectar com o sistema de chat. Usando modo offline.",
+        title: "Erro de Autenticação",
+        description: "Não foi possível conectar com o sistema de chat. Verifique sua autenticação.",
         variant: "destructive"
       });
-      
-      // Usar modo offline/mock
-      setSessionId("offline-session");
-      loadWelcomeMessage();
+
+      // Show error message
+      const errorMessage: Message = {
+        id: "error",
+        type: "system",
+        content: `❌ Erro de Conexão
+
+Não foi possível conectar com o sistema de chat.
+Verifique se:
+1. Você está logado no sistema (/login)
+2. O servidor Gatekeeper está funcionando (porta 8001)
+3. Tente recarregar a página`,
+        timestamp: new Date(),
+      };
+
+      setMessages([errorMessage]);
     }
   };
 
@@ -83,8 +177,6 @@ Como posso ajudá-lo hoje?`,
     
     setMessages([welcomeMessage]);
   };
-  
-  const [messages, setMessages] = useState<Message[]>([]);
 
   // Mock data para demonstração
   const mockDocuments = [
@@ -143,61 +235,78 @@ Como posso ajudá-lo hoje?`,
     // Mensagem do usuário
     const userMessage: Message = {
       id: Date.now().toString(),
-      type: "user", 
+      type: "user",
       content,
       timestamp: new Date(),
     };
-    
+
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
 
     try {
-      // Enviar para a API real
-      const response = await apiService.sendChatMessage({
+      // Import gatekeeperApi dynamically
+      const { gatekeeperApi } = await import("@/services/gatekeeperApi");
+
+      // Send to Gatekeeper API with authentication
+      const response = await gatekeeperApi.sendChatMessage({
         message: content,
         session_id: sessionId,
-        agent_name: "LogisticsAgent" // Padrão
+        agent_name: "LogisticsAgent"
       });
 
-      // Mensagem de resposta do agente
-      const agentMessage: Message = {
-        id: response.message_id,
-        type: "agent",
-        content: response.content,
-        timestamp: new Date(response.timestamp),
-        attachments: response.attachments || []
-      };
+      if (response.success) {
+        // Agent response message
+        const agentMessage: Message = {
+          id: response.message_id,
+          type: "agent",
+          content: response.content,
+          timestamp: new Date(response.timestamp),
+          attachments: response.attachments || []
+        };
 
-      setMessages(prev => [...prev, agentMessage]);
+        setMessages(prev => [...prev, agentMessage]);
 
-      // Se houver anexos, pode mostrar modal ou notificação
-      if (response.attachments && response.attachments.length > 0) {
+        // Show notification for attachments
+        if (response.attachments && response.attachments.length > 0) {
+          toast({
+            title: "Documentos encontrados",
+            description: `${response.attachments.length} documento(s) anexado(s) à resposta.`
+          });
+        }
+      } else {
+        // Error response from API
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: "agent",
+          content: `❌ Erro: ${response.message || 'Não foi possível processar sua mensagem'}`,
+          timestamp: new Date(),
+        };
+
+        setMessages(prev => [...prev, errorMessage]);
+
         toast({
-          title: "Documentos encontrados",
-          description: `${response.attachments.length} documento(s) anexado(s) à resposta.`
+          title: "Erro na Mensagem",
+          description: response.message || "Erro ao processar mensagem",
+          variant: "destructive"
         });
       }
 
     } catch (error) {
       console.error("Erro ao enviar mensagem:", error);
-      
-      // Fallback para modo offline usando o interpretador original
-      const interpretation = interpreter.interpret(content);
-      
+
+      // Fallback error message
       const fallbackResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: "agent",
-        content: sessionId === "offline-session" 
-          ? interpretation.suggestedResponse || "Desculpe, estou em modo offline. Tente novamente quando a conexão for restabelecida."
-          : "Desculpe, houve um problema ao processar sua mensagem. Tente novamente em alguns instantes.",
+        content: "❌ Desculpe, houve um problema ao processar sua mensagem. Verifique se você está autenticado e tente novamente.",
         timestamp: new Date(),
       };
-      
+
       setMessages(prev => [...prev, fallbackResponse]);
-      
+
       toast({
         title: "Erro de Conexão",
-        description: "Não foi possível enviar a mensagem. Verifique sua conexão.",
+        description: "Verifique sua autenticação e conexão com o servidor",
         variant: "destructive"
       });
     } finally {

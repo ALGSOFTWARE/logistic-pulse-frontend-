@@ -1,34 +1,17 @@
 /**
  * Hook para gerenciar usuários via API
+ * ✅ Versão segura com validação de roles
  */
 import { useState, useEffect } from 'react';
-
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  user_type: string;
-  is_active: boolean;
-  created_at: string;
-  last_login?: string;
-  has_password: boolean;
-}
-
-export interface CreateUserData {
-  name: string;
-  email: string;
-  user_type: string;
-  password?: string;
-  is_active?: boolean;
-}
-
-export interface UpdateUserData {
-  name?: string;
-  email?: string;
-  user_type?: string;
-  password?: string;
-  is_active?: boolean;
-}
+import { 
+  User, 
+  CreateUserData, 
+  UpdateUserData, 
+  UserRole, 
+  isValidUserRole,
+  getPermissionsForRole,
+  getRoleLabel 
+} from '../types/auth';
 
 interface UseUsersReturn {
   users: User[];
@@ -40,9 +23,14 @@ interface UseUsersReturn {
   createUser: (userData: CreateUserData) => Promise<boolean>;
   updateUser: (userId: string, userData: UpdateUserData) => Promise<boolean>;
   deleteUser: (userId: string) => Promise<boolean>;
+  // ✅ Funções de segurança adicionadas
+  validateUserRole: (role: string) => boolean;
+  getRoleOptions: () => { value: UserRole; label: string }[];
+  getUsersByRole: (role: UserRole) => User[];
+  getRoleLabel: (role: UserRole) => string;
 }
 
-const API_BASE_URL = 'http://localhost:8001';
+const API_BASE_URL = 'http://localhost:8000';
 
 export const useUsers = (): UseUsersReturn => {
   const [users, setUsers] = useState<User[]>([]);
@@ -61,7 +49,23 @@ export const useUsers = (): UseUsersReturn => {
       }
       
       const data = await response.json();
-      setUsers(data);
+      
+      // ✅ Validar roles dos usuários retornados
+      const validatedUsers = data.map((user: any) => {
+        if (!isValidUserRole(user.user_type)) {
+          console.warn(`Usuário ${user.id} tem role inválido: ${user.user_type}`);
+          // Definir role padrão para usuários com role inválido
+          user.user_type = UserRole.OPERATOR;
+        }
+        
+        return {
+          ...user,
+          role: user.user_type, // Compatibilidade
+          permissions: user.permissions || getPermissionsForRole(user.user_type as UserRole)
+        };
+      });
+      
+      setUsers(validatedUsers);
       
     } catch (err) {
       console.error('Erro ao carregar usuários:', err);
@@ -140,6 +144,11 @@ export const useUsers = (): UseUsersReturn => {
     try {
       setError(null);
       
+      // ✅ Validar role antes de enviar
+      if (!isValidUserRole(userData.user_type)) {
+        throw new Error(`Role inválido: ${userData.user_type}. Roles válidos: ${Object.values(UserRole).join(', ')}`);
+      }
+      
       const response = await fetch(`${API_BASE_URL}/api/mittracking/users/create`, {
         method: 'POST',
         headers: {
@@ -171,6 +180,11 @@ export const useUsers = (): UseUsersReturn => {
   const updateUser = async (userId: string, userData: UpdateUserData): Promise<boolean> => {
     try {
       setError(null);
+      
+      // ✅ Validar role se estiver sendo atualizado
+      if (userData.user_type && !isValidUserRole(userData.user_type)) {
+        throw new Error(`Role inválido: ${userData.user_type}. Roles válidos: ${Object.values(UserRole).join(', ')}`);
+      }
       
       const response = await fetch(`${API_BASE_URL}/api/mittracking/users/${userId}`, {
         method: 'PUT',
@@ -232,6 +246,22 @@ export const useUsers = (): UseUsersReturn => {
     fetchUsers();
   }, []);
 
+  // ✅ Funções de segurança
+  const validateUserRole = (role: string): boolean => {
+    return isValidUserRole(role);
+  };
+
+  const getRoleOptions = (): { value: UserRole; label: string }[] => {
+    return Object.values(UserRole).map(role => ({
+      value: role,
+      label: getRoleLabel(role)
+    }));
+  };
+
+  const getUsersByRole = (role: UserRole): User[] => {
+    return users.filter(user => user.user_type === role);
+  };
+
   return {
     users,
     loading,
@@ -241,6 +271,11 @@ export const useUsers = (): UseUsersReturn => {
     changePassword,
     createUser,
     updateUser,
-    deleteUser
+    deleteUser,
+    // ✅ Funções de segurança
+    validateUserRole,
+    getRoleOptions,
+    getUsersByRole,
+    getRoleLabel
   };
 };
