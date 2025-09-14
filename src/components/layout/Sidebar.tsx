@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useState } from "react";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
 const getCurrentPath = () => window.location.pathname;
@@ -47,8 +47,18 @@ export const Sidebar = () => {
   const navigate = useNavigate();
 
   const handleLogout = () => {
+    console.log("🔴 LOGOUT: Iniciando processo de logout...");
+    console.log("🔴 LOGOUT: Estado atual do usuário:", user);
+    console.log("🔴 LOGOUT: isAuthenticated:", isAuthenticated);
+
     logout();
+
+    console.log("🔴 LOGOUT: Chamada logout() concluída");
+    console.log("🔴 LOGOUT: Navegando para /login...");
+
     navigate("/login");
+
+    console.log("🔴 LOGOUT: Navigate executado");
   };
 
   const handleProfile = () => {
