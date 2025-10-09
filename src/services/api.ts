@@ -8,7 +8,7 @@
  * - Autenticação
  */
 
-const API_BASE_URL = 'http://localhost:8000'; // Porta do gatekeeper-api
+const API_BASE_URL = 'http://localhost:8001'; // Porta do servidor corrigido com anti-alucinação
 
 export interface ChatMessage {
   id: string;
@@ -27,6 +27,7 @@ export interface ChatRequest {
   message: string;
   session_id: string;
   agent_name?: string;
+  order_id?: string;
 }
 
 export interface ChatResponse {
@@ -416,6 +417,58 @@ class ApiService {
         user_id: this.userId,
         ...data
       }),
+    });
+  }
+
+  /**
+   * Fiscal - Emitir NF-e via Gatekeeper
+   */
+  async emitFiscalNFe(
+    orderId: string,
+    payload: Record<string, any>,
+    options: { userId?: string; tags?: string[]; note?: string } = {}
+  ): Promise<any> {
+    const body: Record<string, any> = {
+      payload,
+      user_id: options.userId ?? this.userId,
+      tags: options.tags ?? [],
+    };
+
+    if (options.note) {
+      body.note = options.note;
+    }
+
+    return this.request(`/orders/${orderId}/fiscal/nfe`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * Fiscal - Emitir CT-e via Gatekeeper
+   */
+  async emitFiscalCte(
+    orderId: string,
+    payload: Record<string, any>,
+    options: { userId?: string; tags?: string[]; note?: string; sourceNfeKey?: string } = {}
+  ): Promise<any> {
+    const body: Record<string, any> = {
+      payload,
+      user_id: options.userId ?? this.userId,
+      tags: options.tags ?? [],
+    };
+
+    if (options.note) {
+      body.note = options.note;
+    }
+
+    if (options.sourceNfeKey) {
+      body.source_nfe_key = options.sourceNfeKey;
+    }
+
+    return this.request(`/orders/${orderId}/fiscal/cte`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
   }
 

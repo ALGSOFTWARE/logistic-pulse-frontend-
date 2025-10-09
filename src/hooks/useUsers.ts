@@ -30,7 +30,7 @@ interface UseUsersReturn {
   getRoleLabel: (role: UserRole) => string;
 }
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8001';
 
 export const useUsers = (): UseUsersReturn => {
   const [users, setUsers] = useState<User[]>([]);

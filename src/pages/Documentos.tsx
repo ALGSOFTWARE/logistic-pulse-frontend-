@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/components/ui/use-toast";
 import { useDocuments } from "@/hooks/useDocuments";
 import { useUsers } from "@/hooks/useUsers";
+import { useOrders } from "@/hooks/useOrders";
 import { useAuth } from "../contexts/AuthContext";
 import { 
   FileText, 
@@ -81,8 +82,8 @@ const getOrigemIcon = (origem: string) => {
   }
 };
 
-const DocumentUploadModal = ({ isOpen, onClose, onUploadSuccess }: { 
-  isOpen: boolean; 
+const DocumentUploadModal = ({ isOpen, onClose, onUploadSuccess }: {
+  isOpen: boolean;
   onClose: () => void;
   onUploadSuccess: () => void;
 }) => {
@@ -92,9 +93,11 @@ const DocumentUploadModal = ({ isOpen, onClose, onUploadSuccess }: {
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [documentCategory, setDocumentCategory] = useState("other");
+  const [selectedOrderId, setSelectedOrderId] = useState("");
   const { uploadDocument } = useDocuments();
   const { users } = useUsers();
-  
+  const { orders } = useOrders();
+
   // Para demonstração, usar primeiro usuário disponível
   const currentUser = users[0];
 
@@ -125,31 +128,46 @@ const DocumentUploadModal = ({ isOpen, onClose, onUploadSuccess }: {
   };
   
   const handleUpload = async () => {
-    if (!selectedFile || !currentUser) {
+    if (!selectedFile || !currentUser || !selectedOrderId) {
       toast({
         title: "Erro",
-        description: "Selecione um arquivo e certifique-se de que há um usuário logado",
+        description: "Selecione um arquivo, uma order e certifique-se de que há um usuário logado",
         variant: "destructive"
       });
       return;
     }
-    
+
     setUploading(true);
     try {
-      const success = await uploadDocument(selectedFile, currentUser.id, documentCategory);
-      
-      if (success) {
+      // Fazer upload diretamente via API com order_id
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const params = new URLSearchParams();
+      params.append('order_id', selectedOrderId);
+      params.append('category', documentCategory);
+      params.append('public', 'true');
+
+      const response = await fetch(`http://localhost:8001/files/upload?${params.toString()}`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
         toast({
           title: "Upload realizado com sucesso!",
-          description: `Arquivo ${selectedFile.name} foi enviado e está sendo processado.`,
+          description: `Arquivo ${selectedFile.name} foi enviado e associado à order.`,
         });
         setSelectedFile(null);
+        setSelectedOrderId("");
+        setDocumentCategory("other");
         onUploadSuccess();
         onClose();
       } else {
+        const errorData = await response.json();
         toast({
           title: "Erro no upload",
-          description: "Não foi possível enviar o arquivo. Tente novamente.",
+          description: errorData.detail || "Não foi possível enviar o arquivo.",
           variant: "destructive"
         });
       }
@@ -208,16 +226,23 @@ const DocumentUploadModal = ({ isOpen, onClose, onUploadSuccess }: {
               <p className="text-sm text-muted-foreground mt-2">
                 Formatos suportados: PDF, PNG, JPG, XML (máx. 10MB)
               </p>
-              <input 
-                type="file" 
+              <input
+                type="file"
                 accept=".pdf,.png,.jpg,.jpeg,.xml"
                 onChange={handleFileSelect}
-                className="hidden" 
+                className="hidden"
                 id="file-upload"
               />
-              <label htmlFor="file-upload">
-                <Button className="mt-4" type="button">Selecionar Arquivos</Button>
-              </label>
+              <Button
+                className="mt-4"
+                type="button"
+                onClick={() => {
+                  const input = document.getElementById('file-upload') as HTMLInputElement;
+                  if (input) input.click();
+                }}
+              >
+                Selecionar Arquivos
+              </Button>
               
               {selectedFile && (
                 <div className="mt-4 p-3 bg-muted rounded-lg">
@@ -227,6 +252,19 @@ const DocumentUploadModal = ({ isOpen, onClose, onUploadSuccess }: {
                   </p>
                   
                   <div className="mt-3 space-y-2">
+                    <Select value={selectedOrderId} onValueChange={setSelectedOrderId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione uma Order" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {orders.map((order) => (
+                          <SelectItem key={order.order_id} value={order.order_id}>
+                            {order.title} - {order.customer_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
                     <Select value={documentCategory} onValueChange={setDocumentCategory}>
                       <SelectTrigger>
                         <SelectValue placeholder="Categoria do documento" />
@@ -239,10 +277,10 @@ const DocumentUploadModal = ({ isOpen, onClose, onUploadSuccess }: {
                         <SelectItem value="other">Outro</SelectItem>
                       </SelectContent>
                     </Select>
-                    
-                    <Button 
-                      onClick={handleUpload} 
-                      disabled={uploading}
+
+                    <Button
+                      onClick={handleUpload}
+                      disabled={uploading || !selectedOrderId}
                       className="w-full"
                     >
                       {uploading ? "Enviando..." : "Fazer Upload"}
@@ -250,9 +288,6 @@ const DocumentUploadModal = ({ isOpen, onClose, onUploadSuccess }: {
                   </div>
                 </div>
               )}
-            </div>
-            <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
-              <strong>IA Automática:</strong> Nosso sistema identificará automaticamente o tipo de documento e o associará à jornada correta.
             </div>
           </TabsContent>
 
@@ -302,18 +337,42 @@ const DocumentViewer = ({ documento, isOpen, onClose }: { documento: any; isOpen
   const { getDocumentDetails } = useDocuments();
   const [documentDetails, setDocumentDetails] = useState(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
-  
+  const [ocrText, setOcrText] = useState(null);
+  const [loadingOcrText, setLoadingOcrText] = useState(false);
+
   const loadDocumentDetails = async () => {
     if (!documento?.file_id) return;
-    
+
     setLoadingDetails(true);
     try {
       const details = await getDocumentDetails(documento.file_id);
       setDocumentDetails(details);
+
+      // Se há texto disponível, carregar o texto OCR completo
+      if (details?.text_content_available) {
+        await loadOcrText();
+      }
     } catch (error) {
       console.error('Erro ao carregar detalhes do documento:', error);
     } finally {
       setLoadingDetails(false);
+    }
+  };
+
+  const loadOcrText = async () => {
+    if (!documento?.file_id) return;
+
+    setLoadingOcrText(true);
+    try {
+      const response = await fetch(`http://localhost:8001/files/${documento.file_id}/ocr-text`);
+      if (response.ok) {
+        const data = await response.json();
+        setOcrText(data);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar texto OCR:', error);
+    } finally {
+      setLoadingOcrText(false);
     }
   };
   
@@ -322,64 +381,110 @@ const DocumentViewer = ({ documento, isOpen, onClose }: { documento: any; isOpen
     if (isOpen && documento) {
       loadDocumentDetails();
     }
+
+    // Reset states when modal closes
+    if (!isOpen) {
+      setDocumentDetails(null);
+      setOcrText(null);
+    }
   }, [isOpen, documento]);
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl h-[80vh]">
         <DialogHeader>
           <DialogTitle>{documento?.numero}</DialogTitle>
         </DialogHeader>
-        <div className="flex-1 bg-muted rounded-lg flex items-center justify-center">
+        <div className="flex-1 overflow-hidden">
           {loadingDetails ? (
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-              <p className="text-muted-foreground">Carregando detalhes...</p>
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-muted-foreground">Carregando detalhes...</p>
+              </div>
             </div>
           ) : documentDetails ? (
-            <div className="w-full p-4">
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="font-medium">Tipo:</span> {documentDetails.file_type}
-                  </div>
-                  <div>
-                    <span className="font-medium">Tamanho:</span> {(documentDetails.size_bytes / 1024 / 1024).toFixed(1)} MB
-                  </div>
-                  <div>
-                    <span className="font-medium">Status:</span> {documentDetails.processing_status}
-                  </div>
-                  <div>
-                    <span className="font-medium">Acessos:</span> {documentDetails.access_count}
-                  </div>
+            <div className="h-full flex flex-col space-y-4 p-4">
+              {/* Metadados do documento */}
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="font-medium">Tipo:</span> {documentDetails.file_type}
                 </div>
-                
+                <div>
+                  <span className="font-medium">Tamanho:</span> {(documentDetails.size_bytes / 1024 / 1024).toFixed(1)} MB
+                </div>
+                <div>
+                  <span className="font-medium">Status:</span> {documentDetails.processing_status}
+                </div>
+                <div>
+                  <span className="font-medium">Acessos:</span> {documentDetails.access_count}
+                </div>
+              </div>
+
+              {/* Badges de status */}
+              <div className="flex gap-2">
                 {documentDetails.text_content_available && (
-                  <div>
-                    <p className="font-medium mb-2">Texto extraído disponível via OCR</p>
-                    <Badge variant="outline">OCR Processado</Badge>
-                  </div>
+                  <Badge variant="outline">OCR Processado</Badge>
                 )}
-                
                 {documentDetails.has_embedding && (
                   <Badge variant="outline">Busca Semântica Habilitada</Badge>
                 )}
-                
-                <div className="text-center pt-4">
-                  <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-muted-foreground">Preview do documento</p>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Visualizador completo será implementado
-                  </p>
-                </div>
               </div>
+
+              {/* Texto OCR */}
+              {documentDetails.text_content_available && (
+                <div className="flex-1 flex flex-col min-h-0">
+                  <h4 className="font-medium mb-2">Texto Extraído (OCR)</h4>
+                  {loadingOcrText ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mr-2"></div>
+                      <span className="text-sm text-muted-foreground">Carregando texto...</span>
+                    </div>
+                  ) : ocrText ? (
+                    <div className="flex-1 bg-background border rounded-lg p-4 overflow-auto">
+                      <pre className="text-sm whitespace-pre-wrap break-words">
+                        {ocrText.text_content}
+                      </pre>
+                      <div className="mt-4 pt-4 border-t text-xs text-muted-foreground">
+                        <p>Caracteres: {ocrText.text_length}</p>
+                        {ocrText.logistics_entities && ocrText.logistics_entities.length > 0 && (
+                          <p>Entidades logísticas identificadas: {ocrText.logistics_entities.length}</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 bg-muted rounded-lg flex items-center justify-center">
+                      <div className="text-center">
+                        <FileText className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">Não foi possível carregar o texto</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Placeholder para documentos sem OCR */}
+              {!documentDetails.text_content_available && (
+                <div className="flex-1 bg-muted rounded-lg flex items-center justify-center">
+                  <div className="text-center">
+                    <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                    <p className="text-muted-foreground">Preview do documento</p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Nenhum texto foi extraído deste documento
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
-            <div className="text-center">
-              <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-muted-foreground">Visualização do documento</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Não foi possível carregar os detalhes
-              </p>
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-muted-foreground">Visualização do documento</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Não foi possível carregar os detalhes
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -393,6 +498,7 @@ export default function Documentos() {
   const [tipoFiltro, setTipoFiltro] = useState("todos");
   const [statusFiltro, setStatusFiltro] = useState("todos");
   const [origemFiltro, setOrigemFiltro] = useState("todos");
+  const [orderFiltro, setOrderFiltro] = useState("");
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
@@ -424,10 +530,15 @@ export default function Documentos() {
       const matchTipo = tipoFiltro === "todos" || doc.tipo === tipoFiltro;
       const matchStatus = statusFiltro === "todos" || doc.status === statusFiltro;
       const matchOrigem = origemFiltro === "todos" || doc.origem_upload === origemFiltro;
-      
-      return matchFiltro && matchTipo && matchStatus && matchOrigem;
+      const matchOrder = orderFiltro === "" ||
+                        (doc.order_title && doc.order_title.toLowerCase().includes(orderFiltro.toLowerCase())) ||
+                        (doc.jornada && doc.jornada.toLowerCase().includes(orderFiltro.toLowerCase())) ||
+                        (doc.order_id && doc.order_id.toLowerCase().includes(orderFiltro.toLowerCase())) ||
+                        (doc.order_customer && doc.order_customer.toLowerCase().includes(orderFiltro.toLowerCase()));
+
+      return matchFiltro && matchTipo && matchStatus && matchOrigem && matchOrder;
     });
-  }, [documents, filtro, tipoFiltro, statusFiltro, origemFiltro]);
+  }, [documents, filtro, tipoFiltro, statusFiltro, origemFiltro, orderFiltro]);
 
   const handleDownload = async (doc: any) => {
     try {
@@ -582,7 +693,7 @@ export default function Documentos() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
@@ -627,6 +738,15 @@ export default function Documentos() {
                   <SelectItem value="email">Via E-mail</SelectItem>
                 </SelectContent>
               </Select>
+              <div className="relative">
+                <Package className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Filtrar por Order..."
+                  value={orderFiltro}
+                  onChange={(e) => setOrderFiltro(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
               <Button variant="outline">
                 <Download className="h-4 w-4 mr-2" />
                 Download em Massa
@@ -669,7 +789,18 @@ export default function Documentos() {
                           </div>
                           
                           <p className="text-sm text-muted-foreground mb-2">{doc.cliente}</p>
-                          
+
+                          {/* Informação da Order associada */}
+                          {doc.order_id && (
+                            <div className="mb-2 p-2 bg-muted rounded text-xs">
+                              <div className="flex items-center gap-2">
+                                <Package className="w-3 h-3 text-blue-500" />
+                                <span className="font-medium">Order:</span>
+                                <span className="text-blue-600">{doc.jornada || 'Order não identificada'}</span>
+                              </div>
+                            </div>
+                          )}
+
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground">
                             <div className="flex items-center space-x-1">
                               <Calendar className="w-3 h-3" />

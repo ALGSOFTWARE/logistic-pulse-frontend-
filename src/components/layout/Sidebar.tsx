@@ -1,17 +1,19 @@
-import { 
-  BarChart3, 
-  Route, 
-  Truck, 
-  Users, 
-  FileText, 
-  TrendingUp, 
-  MessageCircle, 
+import {
+  BarChart3,
+  Route,
+  Truck,
+  Users,
+  FileText,
+  TrendingUp,
+  MessageCircle,
   Settings,
   Activity,
   LogOut,
   User,
   ChevronDown,
-  UserCog
+  UserCog,
+  Package,
+  FileSpreadsheet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -25,9 +27,11 @@ const navigation = [
   { name: "Dashboard", icon: BarChart3, href: "/dashboard", current: false },
   { name: "Jornadas", icon: Route, href: "/jornadas", current: false },
   { name: "Entregas", icon: Truck, href: "/entregas", current: false },
+  { name: "Orders", icon: Package, href: "/orders", current: false },
   { name: "Clientes", icon: Users, href: "/clientes", current: false },
   { name: "Usuários", icon: UserCog, href: "/usuarios", current: false },
   { name: "Documentos", icon: FileText, href: "/documentos", current: false },
+  { name: "Fiscal", icon: FileSpreadsheet, href: "/fiscal", current: false },
   { name: "Relatórios", icon: TrendingUp, href: "/relatorios", current: false },
   { name: "Chat", icon: MessageCircle, href: "/chat", current: false },
   { name: "Configurações", icon: Settings, href: "/configuracoes", current: false },

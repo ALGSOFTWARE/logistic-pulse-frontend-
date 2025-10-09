@@ -71,3 +71,22 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+
+## Deploy com Docker
+
+1. Garanta Docker instalado na máquina de destino.
+2. No diretório raiz (`original-logistic-pulse/`), construa a imagem:
+   ```bash
+   docker build -t logistic-frontend .
+   ```
+3. Execute o container expondo a porta HTTP:
+   ```bash
+   docker run -d -p 80:80 --name logistic-frontend logistic-frontend
+   ```
+4. A aplicação estará disponível em `http://<host>:80`.
+
+### Checklist para EC2
+- Liberar a porta `80` (e `443` se usar TLS) no Security Group.
+- Instalar Docker (`sudo yum install docker -y` em Amazon Linux) e iniciar o serviço (`sudo systemctl enable --now docker`).
+- Opcional: publicar a imagem em um registry (ex: Amazon ECR) e fazer pull na instância.
+- Para atualizações, recrie o container: `docker pull <imagem>` e `docker run --rm ...` ou utilize `docker compose`.

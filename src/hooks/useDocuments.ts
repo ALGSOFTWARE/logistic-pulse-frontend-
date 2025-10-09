@@ -23,6 +23,8 @@ export interface Document {
   file_id: string;
   s3_url?: string;
   order_id?: string;
+  order_title?: string;
+  order_customer?: string;
 }
 
 export interface DocumentDetails {
@@ -72,7 +74,7 @@ interface UseDocumentsReturn {
   loadMore: () => void;
 }
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8001';
 
 export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsReturn => {
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -113,13 +115,13 @@ export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsRetu
         numero: doc.original_name,
         tipo: doc.category?.toUpperCase() || 'OTHER',
         cliente: doc.order_info?.customer_name || 'Cliente não informado',
-        jornada: doc.order_info?.title || '',
+        jornada: doc.order_info?.title || 'Sem order associada',
         origem: 'N/A',
         destino: 'N/A',
         dataUpload: doc.uploaded_at,
         dataEmissao: doc.uploaded_at,
-        status: doc.processing_status === 'indexed' ? 'Validado' : 
-                doc.processing_status === 'uploaded' ? 'Pendente Validação' : 
+        status: doc.processing_status === 'indexed' ? 'Validado' :
+                doc.processing_status === 'uploaded' ? 'Pendente Validação' :
                 doc.processing_status === 'error' ? 'Rejeitado' : 'Processando',
         tamanho: `${(doc.size_bytes / 1024 / 1024).toFixed(2)} MB`,
         versao: 1,
@@ -128,7 +130,10 @@ export const useDocuments = (initialFilters?: DocumentFilters): UseDocumentsRetu
         visualizacoes: 0,
         ultimaVisualizacao: doc.uploaded_at,
         s3_url: doc.s3_url,
-        order_id: doc.order_id
+        order_id: doc.order_id,
+        // Adicionar informações da order para facilitar filtros
+        order_title: doc.order_info?.title || '',
+        order_customer: doc.order_info?.customer_name || ''
       }));
       
       if (append) {
