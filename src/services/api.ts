@@ -48,6 +48,30 @@ export interface ChatSession {
   agents_used: string[];
 }
 
+export interface FiscalPdfRenderRequest {
+  xml: string;
+  documentType?: 'nfe' | 'cte';
+  fileName?: string;
+  orientation?: 'portrait' | 'landscape';
+  marginTopMm?: number;
+  marginBottomMm?: number;
+  marginLeftMm?: number;
+  marginRightMm?: number;
+  logoBase64?: string;
+  validateXml?: boolean;
+}
+
+export interface FiscalPdfRenderResponse {
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  pdf_base64: string;
+  document_type: 'nfe' | 'cte';
+  page_count?: number | null;
+  metadata: Record<string, any>;
+  warnings: string[];
+}
+
 /**
  * Classe para gerenciar comunicação com a API
  */
@@ -467,6 +491,30 @@ class ApiService {
     }
 
     return this.request(`/orders/${orderId}/fiscal/cte`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * Fiscal - Converter XML em PDF (DANFE/DACTE)
+   */
+  async generateFiscalPdf(payload: FiscalPdfRenderRequest): Promise<FiscalPdfRenderResponse> {
+    const body: Record<string, any> = {
+      xml: payload.xml,
+    };
+
+    if (payload.documentType) body.document_type = payload.documentType;
+    if (payload.fileName) body.file_name = payload.fileName;
+    if (payload.orientation) body.orientation = payload.orientation;
+    if (payload.marginTopMm !== undefined) body.margin_top_mm = payload.marginTopMm;
+    if (payload.marginBottomMm !== undefined) body.margin_bottom_mm = payload.marginBottomMm;
+    if (payload.marginLeftMm !== undefined) body.margin_left_mm = payload.marginLeftMm;
+    if (payload.marginRightMm !== undefined) body.margin_right_mm = payload.marginRightMm;
+    if (payload.logoBase64) body.logo_base64 = payload.logoBase64;
+    if (payload.validateXml !== undefined) body.validate_xml = payload.validateXml;
+
+    return this.request<FiscalPdfRenderResponse>('/fiscal/render-pdf', {
       method: 'POST',
       body: JSON.stringify(body),
     });

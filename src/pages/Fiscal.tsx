@@ -25,7 +25,6 @@ import {
   Truck,
   Search,
 } from "lucide-react";
-import { jsPDF } from "jspdf";
 
 interface OrderSuggestion {
   value: string;
@@ -581,6 +580,7 @@ const Fiscal: React.FC = () => {
   const [cteResult, setCteResult] = useState<Record<string, any> | null>(null);
 
   const [xmlInput, setXmlInput] = useState("");
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   const emitNfeMutation = useMutation({
     mutationFn: async (variables: {
@@ -657,13 +657,63 @@ const Fiscal: React.FC = () => {
 
   const xmlHighlights = useMemo(() => {
     if (!parsedXml) return null;
-    const safeText = (selector: string) => parsedXml.querySelector(selector)?.textContent ?? "-";
-    const nfeKey = parsedXml.querySelector("infNFe")?.getAttribute("Id") ?? "-";
+
+    const rootName = parsedXml.documentElement?.nodeName?.toLowerCase() ?? "";
+    let documentType: 'nfe' | 'cte' | 'unknown' = 'unknown';
+    if (rootName.includes('cte')) documentType = 'cte';
+    else if (rootName.includes('nfe')) documentType = 'nfe';
+
+    const selectText = (selectors: string[]): string => {
+      for (const selector of selectors) {
+        const value = parsedXml.querySelector(selector)?.textContent?.trim();
+        if (value) {
+          return value;
+        }
+      }
+      return '-';
+    };
+
+    let chave = '-';
+    if (documentType === 'nfe') {
+      const inf = parsedXml.querySelector('infNFe');
+      chave = inf?.getAttribute('Id')?.replace(/^(?:NFe)/, '') ?? '-';
+    } else if (documentType === 'cte') {
+      const inf = parsedXml.querySelector('infCte');
+      if (inf) {
+        chave = inf.getAttribute('Id')?.replace(/^(?:CTe)/, '') ?? '-';
+      } else {
+        chave = selectText(['protCTe > infProt > chCTe', 'chCTe']);
+      }
+    } else {
+      const fallback = parsedXml.querySelector('infNFe, infCte, chCTe');
+      if (fallback instanceof Element) {
+        const attr = fallback.getAttribute('Id');
+        chave = attr?.replace(/^(?:NFe|CTe)/, '') ?? fallback.textContent ?? '-';
+      } else {
+        chave = fallback?.textContent ?? '-';
+      }
+    }
+
+    const emissor = selectText(['emit > xNome', 'emit > xFant']);
+    const destinatario = documentType === 'cte'
+      ? selectText(['dest > xNome', 'dest > xFant', 'rem > xNome'])
+      : selectText(['dest > xNome']);
+
+    let valorTotal = '-';
+    if (documentType === 'nfe') {
+      valorTotal = selectText(['total > ICMSTot > vNF', 'ICMSTot > vNF', 'vNF']);
+    } else if (documentType === 'cte') {
+      valorTotal = selectText(['vPrest > vTPrest', 'infCTeNorm > infCarga > vCarga']);
+    } else {
+      valorTotal = selectText(['total > ICMSTot > vNF', 'vPrest > vTPrest']);
+    }
+
     return {
-      chave: nfeKey.replace(/^NFe/, ""),
-      emissor: safeText("emit > xNome"),
-      destinatario: safeText("dest > xNome"),
-      valorTotal: safeText("ICMSTot > vNF") || safeText("vPrest > vTPrest"),
+      documentType,
+      chave,
+      emissor,
+      destinatario,
+      valorTotal,
     };
   }, [parsedXml]);
 
@@ -1063,7 +1113,7 @@ const Fiscal: React.FC = () => {
     }
   };
 
-  const handleGeneratePdf = () => {
+  const handleGeneratePdf = async () => {
     if (!xmlInput.trim()) {
       toast({
         title: "XML vazio",
@@ -1072,18 +1122,49 @@ const Fiscal: React.FC = () => {
       });
       return;
     }
+
     try {
-      const doc = new jsPDF({ unit: "pt", format: "a4" });
-      doc.setFont("courier", "normal");
-      doc.setFontSize(10);
-      const lines = doc.splitTextToSize(xmlInput, 520);
-      doc.text(lines, 40, 60);
-      const filename = `documento-fiscal-${Date.now()}.pdf`;
-      doc.save(filename);
-      toast({ title: "PDF gerado", description: `Arquivo ${filename} salvo com sucesso.` });
-    } catch (error) {
-      console.error(error);
-      toast({ title: "Erro ao gerar PDF", variant: "destructive" });
+      setIsGeneratingPdf(true);
+
+      const response = await apiService.generateFiscalPdf({
+        xml: xmlInput,
+        documentType: xmlHighlights?.documentType === 'nfe' || xmlHighlights?.documentType === 'cte'
+          ? xmlHighlights.documentType
+          : undefined,
+        fileName: xmlHighlights?.chave && xmlHighlights.chave !== '-' ? `documento-fiscal-${xmlHighlights.chave}.pdf` : undefined,
+      });
+
+      const pdfBytes = Uint8Array.from(window.atob(response.pdf_base64), (char) => char.charCodeAt(0));
+      const blob = new Blob([pdfBytes], { type: response.content_type });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = response.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "PDF gerado",
+        description: response.warnings?.length
+          ? `Arquivo ${response.filename} salvo. Atenção: ${response.warnings.join('; ')}`
+          : `Arquivo ${response.filename} salvo com sucesso.`,
+      });
+
+      if (response.warnings?.length) {
+        console.warn('Avisos ao gerar DANFE/DACTE:', response.warnings);
+      }
+    } catch (error: any) {
+      console.error('Erro ao gerar DANFE/DACTE', error);
+      toast({
+        title: "Erro ao gerar PDF",
+        description: error?.message ?? 'Não foi possível converter o XML em PDF.',
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 
@@ -1692,9 +1773,18 @@ const Fiscal: React.FC = () => {
                   className="font-mono text-xs"
                 />
                 <div className="flex flex-wrap gap-3">
-                  <Button onClick={handleGeneratePdf}>
-                    <Download className="mr-2 h-4 w-4" />
-                    Gerar PDF
+                  <Button onClick={handleGeneratePdf} disabled={isGeneratingPdf}>
+                    {isGeneratingPdf ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Gerando...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="mr-2 h-4 w-4" />
+                        Gerar PDF
+                      </>
+                    )}
                   </Button>
                   <Button variant="outline" onClick={() => setXmlInput("")}>
                     <RefreshCcw className="mr-2 h-4 w-4" />
@@ -1711,6 +1801,16 @@ const Fiscal: React.FC = () => {
                   </div>
                   {parsedXml ? (
                     <dl className="mt-3 space-y-3 text-sm">
+                      <div>
+                        <dt className="text-muted-foreground">Tipo</dt>
+                        <dd className="font-mono text-xs uppercase">
+                          {xmlHighlights?.documentType === 'nfe'
+                            ? 'NF-e'
+                            : xmlHighlights?.documentType === 'cte'
+                              ? 'CT-e'
+                              : 'Não identificado'}
+                        </dd>
+                      </div>
                       <div>
                         <dt className="text-muted-foreground">Chave</dt>
                         <dd className="font-mono text-xs">{xmlHighlights?.chave}</dd>
